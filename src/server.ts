@@ -114,17 +114,30 @@ async function handleResponses(
     }
   }
 
-  // Streaming path
+  // Streaming path. Strategy: don't open the SSE stream to the client until we
+  // know the upstream is OK. This way upstream errors map to clean HTTP errors
+  // instead of half-opened SSE streams that confuse the Codex client.
+  let upstreamRes: Response;
+  try {
+    upstreamRes = await callMimo(
+      { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, userAgent: cfg.userAgent },
+      chat,
+      ac.signal
+    );
+  } catch (err) {
+    if (err instanceof UpstreamError) {
+      return sendJson(res, err.status, errorEnvelope(err.status, err.code, err.message));
+    }
+    log.error("stream request failed (pre-stream)", { error: (err as Error).message });
+    return sendJson(res, 500, errorEnvelope(500, "internal_error", (err as Error).message));
+  }
+
+  // Upstream returned 200 — now we can safely open the SSE stream.
   const sink = makeServerResponseSink(res);
   const keepalive = setInterval(() => sink.comment("keepalive"), KEEPALIVE_INTERVAL_MS);
   res.on("close", () => clearInterval(keepalive));
 
   try {
-    const upstreamRes = await callMimo(
-      { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, userAgent: cfg.userAgent },
-      chat,
-      ac.signal
-    );
     const chunks = iterChatStreamChunks(upstreamRes);
     await pipeChatStreamToResponses(
       sink,
@@ -133,29 +146,18 @@ async function handleResponses(
       { exposeReasoning: cfg.exposeReasoning }
     );
   } catch (err) {
-    clearInterval(keepalive);
-    if (err instanceof UpstreamError) {
-      // Upstream rejected before we sent any SSE — switch to plain JSON if possible.
-      if (!res.headersSent) {
-        return sendJson(res, err.status, errorEnvelope(err.status, err.code, err.message));
-      }
-      sink.write("response.failed", {
-        response: {
-          status: "failed",
-          error: { type: err.code, message: err.message },
-        },
+    log.error("stream request failed (mid-stream)", { error: (err as Error).message });
+    // pipeChatStreamToResponses handles its own errors with response.failed,
+    // so reaching here means something unexpected in our own code.
+    if (!sink.closed()) {
+      sink.write("error", {
+        type: "error",
+        code: "server_error",
+        message: (err as Error).message,
+        sequence_number: 9999,
       });
       sink.end();
-      return;
     }
-    log.error("stream request failed", { error: (err as Error).message });
-    if (!res.headersSent) {
-      return sendJson(res, 500, errorEnvelope(500, "internal_error", (err as Error).message));
-    }
-    sink.write("error", {
-      error: { type: "server_error", message: (err as Error).message },
-    });
-    sink.end();
   } finally {
     clearInterval(keepalive);
   }

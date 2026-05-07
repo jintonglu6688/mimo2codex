@@ -224,4 +224,52 @@ describe("streamToSse", () => {
       expect(seqs[i]).toBe(seqs[i - 1] + 1);
     }
   });
+
+  it("every event has matching `type` field in data (Codex requires this)", async () => {
+    const sink = makeMemorySink();
+    await pipeChatStreamToResponses(
+      sink,
+      {
+        chunks: fromList([
+          chunk({ reasoning_content: "think" }),
+          chunk({ content: "hello" }),
+          chunk({
+            tool_calls: [
+              { index: 0, id: "call_1", type: "function", function: { name: "f", arguments: "{}" } },
+            ],
+          }),
+          chunk({}, "tool_calls"),
+        ]),
+      },
+      req,
+      { exposeReasoning: true }
+    );
+    for (const ev of sink.events) {
+      const data = ev.data as { type?: string };
+      expect(data.type).toBe(ev.event);
+    }
+  });
+
+  it("response.completed contains a fully-formed Response object", async () => {
+    const sink = makeMemorySink();
+    await pipeChatStreamToResponses(
+      sink,
+      { chunks: fromList([chunk({ content: "hi" }, "stop")]) },
+      req,
+      { exposeReasoning: true }
+    );
+    const completed = sink.events.find((e) => e.event === "response.completed");
+    expect(completed).toBeDefined();
+    const data = completed!.data as {
+      type: string;
+      response: { id: string; status: string; output: unknown[]; model: string };
+      sequence_number: number;
+    };
+    expect(data.type).toBe("response.completed");
+    expect(data.response.id).toMatch(/^resp_/);
+    expect(data.response.status).toBe("completed");
+    expect(data.response.model).toBe("mimo-v2.5-pro");
+    expect(Array.isArray(data.response.output)).toBe(true);
+    expect(typeof data.sequence_number).toBe("number");
+  });
 });

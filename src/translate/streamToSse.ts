@@ -55,8 +55,12 @@ class StreamState {
   }
 }
 
+// Each Responses SSE event MUST include `type` in the JSON payload (in addition
+// to the SSE `event:` line) — the Codex client parses events from the data field,
+// not the SSE event header. Missing `type` leads to "stream disconnected before
+// completion" errors because the client never recognizes response.completed.
 function emit(sink: SseSink, state: StreamState, event: string, data: Record<string, unknown>): void {
-  sink.write(event, { ...data, sequence_number: state.nextSeq() });
+  sink.write(event, { type: event, ...data, sequence_number: state.nextSeq() });
 }
 
 function buildResponseSnapshot(state: StreamState, status: ResponsesObject["status"]): ResponsesObject {
