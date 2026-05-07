@@ -264,11 +264,12 @@ npm run build          # 方式 B/C 必跑；方式 A 不用
 #### 1. 启动代理
 
 ```bash
+# 任选你前面装好的方式。这里用方式 A：
 export MIMO_API_KEY=sk-xxxxxxxxxxxxxxxx
-mimo2codex
+npm run dev
 ```
 
-启动后会打印需要的配置片段：
+启动后会打印 Codex 需要的配置片段（默认 **auth.json 方式**——CLI 和桌面端都能用、不依赖任何环境变量）：
 
 ```
 mimo2codex v0.1.0 listening on http://127.0.0.1:8788
@@ -276,7 +277,12 @@ upstream:    https://api.xiaomimimo.com/v1
 api key:     sk-x…xxxx
 reasoning:   passthrough
 
-# ~/.codex/config.toml — 把下面这段加进去（或与已有配置合并）
+# Step 1 — 写 ~/.codex/auth.json (Windows: %USERPROFILE%\.codex\auth.json)
+{
+  "OPENAI_API_KEY": "mimo2codex-local"
+}
+
+# Step 2 — 追加到 ~/.codex/config.toml
 model = "mimo-v2.5-pro"
 model_provider = "mimo"
 
@@ -284,28 +290,28 @@ model_provider = "mimo"
 name = "MiMo (via mimo2codex)"
 base_url = "http://127.0.0.1:8788/v1"
 wire_api = "responses"
-env_key = "MIMO2CODEX_KEY"
+requires_openai_auth = true
 request_max_retries = 1
 ```
 
-#### 2. 写 Codex 配置
+#### 2. 写两个文件
 
-把上面那段 TOML 拷贝到：
+按上面的 Step 1 / Step 2 把两段内容分别写到对应文件：
 
-- macOS / Linux：`~/.codex/config.toml`
-- Windows：`%USERPROFILE%\.codex\config.toml`
+| 文件 | macOS / Linux | Windows |
+|---|---|---|
+| auth.json | `~/.codex/auth.json` | `%USERPROFILE%\.codex\auth.json` |
+| config.toml | `~/.codex/config.toml` | `%USERPROFILE%\.codex\config.toml` |
 
-然后随便 export 一个非空字符串作为 `MIMO2CODEX_KEY`（代理本身不校验，真正的 MiMo Key 在 mimo2codex 进程里）：
+> ⚠️ **注意**：如果你也在用 OpenAI 官方账号登录 Codex，写 auth.json 会把官方登录覆盖掉。这种情况建议改用 [cc-switch 方式](#b-通过-cc-switch-添加自定义供应商)，它会自动备份和切换。
 
-```bash
-# macOS / Linux
-export MIMO2CODEX_KEY=anything
+`mimo2codex-local` 这个值是占位字符串，随便填非空都行——代理本身不校验。
 
-# Windows CMD
-setx MIMO2CODEX_KEY anything
-```
+#### 3. 重启 Codex（桌面端必须做）
 
-#### 3. 用 Codex
+如果你在用 **Codex 桌面端**：从托盘 / 任务栏完全退出（不只是关窗口），再重新启动。否则 Codex 不会重读新写的 auth.json。
+
+如果你在用 **Codex CLI**：直接启动就行：
 
 ```bash
 codex
@@ -314,25 +320,37 @@ codex
 
 Pet、工具调用、思考摘要、多轮对话都能正常工作。
 
+> 💡 **想用环境变量方式的（不动 auth.json）**：跑 `npm run dev -- print-config --env-key` 拿环境变量版的 snippet。但**仅 CLI 适用**，桌面端从 Finder / 开始菜单启动**不会**读到 shell 的 env vars。
+
 ---
 
 ### B. 通过 cc-switch 添加自定义供应商
 
 [cc-switch](https://github.com/farion1231/cc-switch) 是一个跨平台桌面 App，专门管理 Claude Code / Codex / OpenCode / OpenClaw / Gemini CLI 五个工具的多供应商切换。它的 Codex 预设里**没有 MiMo**（因为 MiMo 不支持 Responses API），所以我们用 mimo2codex 当桥，再以「自定义供应商」的方式加进 cc-switch。
 
-#### 1. 启动 mimo2codex
+> ⚠️ **流程要点**：mimo2codex 是个**本地 HTTP 代理服务**，必须**保持运行**才能接收 Codex 的请求。`print-cc-switch` 只是打印配置文本给你拷贝——它不启动任何东西。下面步骤 1（启代理）和步骤 2（拿配置文本）是两件独立的事。
+
+#### 1. 启动 mimo2codex 代理（必须保持运行）
+
+打开一个终端，进 mimo2codex 仓库目录：
 
 ```bash
+cd /path/to/mimo2codex
 export MIMO_API_KEY=sk-xxxxxxxxxxxxxxxx
-mimo2codex
+npm run dev      # 或 node dist/cli.js
 ```
 
-让它一直在后台跑（开机自启 / 用 `pm2` / `systemctl --user` / Windows 服务都行）。
+看到 `listening on http://127.0.0.1:8788` 就成了。**这个终端不要关**——关了代理就停了，Codex 就连不上。
+
+要让它常驻后台（开机自启 / pm2 / systemctl / Windows 任务计划程序），见上面的 [**4. 让代理常驻后台**](#4-让代理常驻后台) 章节。
 
 #### 2. 拿到 cc-switch 配置片段
 
+**新开一个终端**（不要关掉步骤 1 的那个），跑：
+
 ```bash
-mimo2codex print-cc-switch
+cd /path/to/mimo2codex
+npm run dev -- print-cc-switch    # 或 node dist/cli.js print-cc-switch
 ```
 
 输出：
@@ -428,6 +446,60 @@ mimo2codex print-config             # 输出 ~/.codex/config.toml 片段
 mimo2codex print-cc-switch          # 输出 cc-switch 自定义供应商片段
 mimo2codex --port 9000 print-config # 端口换 9000 后再输出
 ```
+
+---
+
+## 故障排查
+
+**Q：Codex 启动报 `Missing environment variable: MIMO2CODEX_KEY`（或类似的 env var 缺失）**
+
+A：你的 `~/.codex/config.toml` 里写了 `env_key = "MIMO2CODEX_KEY"`，Codex 启动时会去**自己进程的环境变量**里找这个名字，没找到就报错。
+
+最容易踩的坑是 **Codex 桌面端**：你在终端 `export MIMO2CODEX_KEY=anything` 是对的，但桌面端是从 Finder / 开始菜单启动的，**不会继承 shell 的环境变量**。
+
+**修复（推荐：改成 auth.json 方式，CLI 和桌面端通用）**：
+
+1. 编辑 `~/.codex/config.toml`（Windows: `%USERPROFILE%\.codex\config.toml`），把 mimo2codex 段落里的：
+   ```toml
+   env_key = "MIMO2CODEX_KEY"
+   ```
+   **删掉**，改成：
+   ```toml
+   requires_openai_auth = true
+   ```
+2. 写 `~/.codex/auth.json`（Windows: `%USERPROFILE%\.codex\auth.json`）：
+   ```json
+   { "OPENAI_API_KEY": "mimo2codex-local" }
+   ```
+3. **完全退出并重启 Codex**（桌面端：托盘右键 → 退出，不只是关窗口）
+
+或直接跑 `npm run dev -- print-config` 拿到现成的两段 snippet 复制即可。
+
+**坚持用环境变量方式的（仅 CLI）**：
+
+- macOS / Linux：在 `~/.bashrc` / `~/.zshrc` 末尾加 `export MIMO2CODEX_KEY=anything`，`source` 一下，再启 `codex`。
+- Windows：用 `setx MIMO2CODEX_KEY anything`（不是 `set`），打开**新的** CMD 窗口再启动 Codex。`setx` 不会影响已经打开的窗口。
+- **注意**：这两种都不解决桌面端问题。桌面端用 auth.json 方式或 cc-switch。
+
+---
+
+**Q：mimo2codex 跑起来了但 Codex 一直转圈 / 504 / connection refused？**
+
+A：检查清单：
+
+1. mimo2codex 进程是否还在前台跑？看终端最后一行是不是 `listening on http://127.0.0.1:8788`
+2. `curl http://127.0.0.1:8788/healthz` 返回什么？应该是 `{"ok":true,...}`
+3. config.toml 里的 `base_url` 有没有以 `/v1` 结尾？必须是 `http://127.0.0.1:8788/v1`，不是 `http://127.0.0.1:8788`
+4. 端口冲突？默认 `8788`，被占了就 `npm run dev -- --port 9999`，**记得同步改 config.toml 里的 base_url**
+
+---
+
+**Q：报 `MiMo returned 401 ...` 或 `authentication_error`**
+
+A：你的 `MIMO_API_KEY`（启动 mimo2codex 时设的那个）无效。重新去 [platform.xiaomimimo.com](https://platform.xiaomimimo.com) 控制台 → API Keys 创建一个，注意 `sk-` 和 `tp-` 前缀对应不同 BASE_URL：
+
+- `sk-xxx` → `--base-url https://api.xiaomimimo.com/v1`（默认）
+- `tp-xxx` → `--base-url https://token-plan-cn.xiaomimimo.com/v1`
 
 ---
 

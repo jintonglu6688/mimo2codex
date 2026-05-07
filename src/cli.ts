@@ -24,7 +24,10 @@ OPTIONS
   -h, --help              show this help
 
 SUBCOMMANDS
-  print-config            print the ~/.codex/config.toml snippet to stdout
+  print-config            print ~/.codex/auth.json + config.toml snippets (default;
+                          works for Codex CLI and desktop app)
+  print-config --env-key  print env-var-based variant (Codex CLI only — desktop app
+                          will NOT see shell env vars set via export/setx)
   print-cc-switch         print auth.json + config.toml snippets for the cc-switch
                           desktop app (https://github.com/farion1231/cc-switch)
 
@@ -32,11 +35,48 @@ EXAMPLES
   MIMO_API_KEY=sk-... mimo2codex
   mimo2codex --port 9000 --base-url https://token-plan-cn.xiaomimimo.com/v1
   mimo2codex print-config > codex-mimo.toml
+  mimo2codex print-config --env-key       # legacy env-var variant
   mimo2codex print-cc-switch
 `;
 
+// Default snippet — uses ~/.codex/auth.json + requires_openai_auth = true.
+// This avoids the common "Missing environment variable: MIMO2CODEX_KEY" error
+// on the Codex desktop app, which doesn't inherit shell env vars set via
+// `export` or `setx`. Works for both CLI and desktop with no env setup.
 function configSnippet(cfg: { host: string; port: number }): string {
-  return `# ~/.codex/config.toml — drop these lines in (or merge with existing config)
+  return `# Step 1 — write ~/.codex/auth.json (Windows: %USERPROFILE%\\.codex\\auth.json)
+# Any non-empty value works; mimo2codex does not validate inbound credentials.
+{
+  "OPENAI_API_KEY": "mimo2codex-local"
+}
+
+# Step 2 — append to ~/.codex/config.toml (Windows: %USERPROFILE%\\.codex\\config.toml)
+model = "mimo-v2.5-pro"
+model_provider = "mimo"
+
+[model_providers.mimo]
+name = "MiMo (via mimo2codex)"
+base_url = "http://${cfg.host}:${cfg.port}/v1"
+wire_api = "responses"
+requires_openai_auth = true
+request_max_retries = 1
+
+# Step 3 — completely quit and restart Codex (the desktop app must be relaunched
+# for the new auth.json to be picked up). Then run \`codex\` and pick this provider.
+
+# ⚠️ If you also use Codex with your real OpenAI account, this auth.json overwrites
+# your OpenAI login. Use cc-switch (\`mimo2codex print-cc-switch\`) instead to switch
+# between providers cleanly, or use \`mimo2codex print-config --env-key\` for the
+# env-var-based variant (works for Codex CLI but not the desktop app).
+`;
+}
+
+// Legacy env_key variant — keeps ~/.codex/auth.json untouched (preserving any
+// existing OpenAI login). Requires MIMO2CODEX_KEY to be set in the environment
+// of the process running \`codex\`. Codex DESKTOP APP does not inherit shell env
+// vars on macOS/Windows, so this variant only works reliably for the CLI.
+function configSnippetEnvKey(cfg: { host: string; port: number }): string {
+  return `# ~/.codex/config.toml — env-var variant (Codex CLI only; desktop app won't see shell env vars)
 model = "mimo-v2.5-pro"
 model_provider = "mimo"
 
@@ -47,9 +87,14 @@ wire_api = "responses"
 env_key = "MIMO2CODEX_KEY"
 request_max_retries = 1
 
-# In your shell, export any non-empty value (the proxy doesn't validate it):
-#   export MIMO2CODEX_KEY=anything
-# On Windows (CMD): setx MIMO2CODEX_KEY anything
+# Then in your shell (the same shell you launch \`codex\` from):
+#   export MIMO2CODEX_KEY=anything           # macOS/Linux/Git Bash
+#   $env:MIMO2CODEX_KEY="anything"           # Windows PowerShell
+#   set MIMO2CODEX_KEY=anything              # Windows CMD (current session only)
+#
+# For Codex DESKTOP APP, this variant does NOT work — desktop apps launched from
+# Finder/Start Menu don't inherit shell env vars. Use the default print-config
+# (auth.json variant) or \`mimo2codex print-cc-switch\` instead.
 `;
 }
 
@@ -122,8 +167,9 @@ function main(): void {
   if (parsed.positional[0] === "print-config") {
     const host = parsed.host ?? "127.0.0.1";
     const port = parsed.port ?? 8788;
+    const useEnvKey = parsed.envKey === true;
     // eslint-disable-next-line no-console
-    console.log(configSnippet({ host, port }));
+    console.log(useEnvKey ? configSnippetEnvKey({ host, port }) : configSnippet({ host, port }));
     return;
   }
 

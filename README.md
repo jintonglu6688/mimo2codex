@@ -179,20 +179,25 @@ Sign up at [platform.xiaomimimo.com](https://platform.xiaomimimo.com), create a 
 
 ### 1. Start the proxy
 
+Pick whichever launch mode you set up above:
+
 ```bash
 export MIMO_API_KEY=sk-xxxxxxxxxxxxxxxx
-mimo2codex
+npm run dev          # or: node dist/cli.js / mimo2codex
 ```
 
-You should see:
+The startup banner prints the **default snippet** (auth.json variant — works for Codex CLI **and** desktop app, no env vars needed):
 
 ```
 mimo2codex v0.1.0 listening on http://127.0.0.1:8788
 upstream:    https://api.xiaomimimo.com/v1
-api key:     sk-x…xxxx
-reasoning:   passthrough
 
-# ~/.codex/config.toml — drop these lines in (or merge with existing config)
+# Step 1 — write ~/.codex/auth.json
+{
+  "OPENAI_API_KEY": "mimo2codex-local"
+}
+
+# Step 2 — append to ~/.codex/config.toml
 model = "mimo-v2.5-pro"
 model_provider = "mimo"
 
@@ -200,55 +205,65 @@ model_provider = "mimo"
 name = "MiMo (via mimo2codex)"
 base_url = "http://127.0.0.1:8788/v1"
 wire_api = "responses"
-env_key = "MIMO2CODEX_KEY"
+requires_openai_auth = true
 request_max_retries = 1
 ```
 
-### 2. Configure Codex
+### 2. Write the two files
 
-Copy that snippet into `~/.codex/config.toml` (Windows: `%USERPROFILE%\.codex\config.toml`), and export any non-empty value as `MIMO2CODEX_KEY` — Codex requires an env_key to be set, but the proxy doesn't validate it (your real MiMo key is what mimo2codex uses upstream):
+| file | macOS / Linux | Windows |
+|---|---|---|
+| auth.json | `~/.codex/auth.json` | `%USERPROFILE%\.codex\auth.json` |
+| config.toml | `~/.codex/config.toml` | `%USERPROFILE%\.codex\config.toml` |
 
-```bash
-export MIMO2CODEX_KEY=anything
-```
+The `OPENAI_API_KEY` value is just a placeholder — the proxy doesn't validate inbound credentials. Your real MiMo key stays in `MIMO_API_KEY` on the machine running mimo2codex.
 
-On Windows (CMD):
+> ⚠️ If you also use Codex with your real OpenAI account, this overwrites your OpenAI login. Use cc-switch (next section) to manage multiple providers cleanly.
 
-```cmd
-setx MIMO2CODEX_KEY anything
-```
+### 3. Restart Codex (desktop app: required)
 
-### 3. Run Codex
+If you use the **Codex desktop app**: fully quit it (system tray / menu bar → Quit, not just close the window) and relaunch — otherwise it won't pick up the new auth.json.
+
+If you use the **Codex CLI**: just run it:
 
 ```bash
 codex
+> Write a Python fibonacci function and save it to fib.py
 ```
 
-Then ask away — including tool-using prompts:
+The pet, tool calls, reasoning summary, and multi-turn flow all work. Pass `--no-reasoning` when starting the proxy to hide reasoning from the terminal (it's still re-injected to MiMo for multi-turn quality).
 
-```
-> 帮我写一个 Python 计算斐波那契的函数并保存到 fib.py
-```
-
-The pet, tool calls, reasoning summary, and multi-turn flow all work. If you want to hide reasoning from the terminal, pass `--no-reasoning` when starting the proxy (it still re-injects reasoning to MiMo on follow-up turns, just not to Codex).
+> 💡 **Want the env-var variant** (preserves your OpenAI auth.json untouched)? Run `npm run dev -- print-config --env-key`. **Codex CLI only** — desktop apps launched from Finder/Start Menu don't see shell env vars.
 
 ## Use with cc-switch
 
-[cc-switch](https://github.com/farion1231/cc-switch) is a desktop app that manages multiple Codex / Claude Code / OpenCode providers and lets you switch between them in one click. Its built-in Codex preset list does **not** include MiMo (because MiMo doesn't speak Responses API) — but you can plug mimo2codex in as a custom provider:
+[cc-switch](https://github.com/farion1231/cc-switch) is a desktop app that manages multiple Codex / Claude Code / OpenCode providers and lets you switch between them in one click. Its built-in Codex preset list does **not** include MiMo (because MiMo doesn't speak Responses API) — but you can plug mimo2codex in as a custom provider.
 
-1. Keep `mimo2codex` running (with `MIMO_API_KEY` set).
-2. Print the cc-switch snippets:
+> ⚠️ **Two parts must run side-by-side**: the **mimo2codex proxy** (a long-running HTTP server you keep alive) and the **cc-switch GUI** (which holds your provider configs). `print-cc-switch` only prints config text to copy — it doesn't start anything.
+
+1. **Keep mimo2codex running** in a terminal (don't close it):
 
    ```bash
-   mimo2codex print-cc-switch
+   cd /path/to/mimo2codex
+   export MIMO_API_KEY=sk-xxxxxxxxxxxxxxxx
+   npm run dev          # or node dist/cli.js, see "Run from source" above
+   ```
+
+   Wait for `listening on http://127.0.0.1:8788`. To run it as a background service, see [step 4 above](#4-keep-the-proxy-running-in-the-background).
+
+2. **In a separate terminal**, print the cc-switch snippets:
+
+   ```bash
+   cd /path/to/mimo2codex
+   npm run dev -- print-cc-switch     # or: node dist/cli.js print-cc-switch
    ```
 
    It outputs two blocks: an `auth.json` block and a `config.toml` block.
 
-3. In cc-switch: switch to the **Codex** tab → click **+** → choose **App-specific Provider** → preset = **Custom**.
-4. Paste the `auth.json` block into the auth.json textarea, paste the `config.toml` block into the config.toml textarea, set the name to e.g. `MiMo (via mimo2codex)`, click **Add**.
+3. In cc-switch GUI: switch to the **Codex** tab → click **+** → choose **App-specific Provider** → preset = **Custom**.
+4. Paste the `auth.json` block into the auth.json textarea, paste the `config.toml` block into the config.toml textarea, set the name to `MiMo (via mimo2codex)`, click **Add**.
 5. Click the new entry to make it active. cc-switch writes `~/.codex/auth.json` + `~/.codex/config.toml` for you.
-6. Run `codex`. Switch back to OpenAI Official / Azure / OpenRouter / etc. anytime by clicking another entry in cc-switch — `mimo2codex` keeps running and only sees traffic when its provider is selected.
+6. Run `codex`. Switch back to OpenAI Official / Azure / OpenRouter / etc. anytime by clicking another entry in cc-switch — mimo2codex keeps running and only sees traffic when its provider is selected.
 
 cc-switch's "Fetch Models" button on the provider form calls `/v1/models`, which mimo2codex implements — so the model dropdown will list `mimo-v2.5-pro`, `mimo-v2.5-pro[1m]`, and `mimo-v2-flash` automatically.
 
@@ -289,6 +304,50 @@ For each request:
 4. Streams back Chat SSE chunks; the state machine in `streamToSse.ts` rewrites them as Responses SSE events.
 
 That's it. The proxy is fully stateless — no `previous_response_id` storage, no caching, no key validation against incoming requests. Run as many instances as you want.
+
+## Troubleshooting
+
+**Codex shows `Missing environment variable: MIMO2CODEX_KEY` (or similar env var error)**
+
+Your `~/.codex/config.toml` has `env_key = "MIMO2CODEX_KEY"`, which makes Codex require that env var to be set in **its own** process environment. The Codex desktop app — launched from Finder / Start Menu — does **not** inherit shell env vars set via `export` or `setx`.
+
+**Fix (recommended — switch to auth.json, works for CLI and desktop)**:
+
+1. In `~/.codex/config.toml`, replace:
+   ```toml
+   env_key = "MIMO2CODEX_KEY"
+   ```
+   with:
+   ```toml
+   requires_openai_auth = true
+   ```
+2. Write `~/.codex/auth.json`:
+   ```json
+   { "OPENAI_API_KEY": "mimo2codex-local" }
+   ```
+3. **Fully quit and relaunch Codex** (system tray → Quit on desktop; not just close).
+
+Or just run `npm run dev -- print-config` to get the ready-made snippets.
+
+**Want to keep the env-var approach (CLI only)**: ensure the env var is set in the shell that launches `codex`. On Windows use `setx MIMO2CODEX_KEY anything` and open a **new** CMD window — `setx` doesn't affect already-open shells. Desktop apps still won't see this; use the auth.json variant or cc-switch instead.
+
+---
+
+**mimo2codex is running but Codex hangs / 504 / connection refused**
+
+Check:
+1. The mimo2codex terminal still shows `listening on http://127.0.0.1:8788`
+2. `curl http://127.0.0.1:8788/healthz` returns `{"ok":true,...}`
+3. config.toml `base_url` ends with `/v1`: `http://127.0.0.1:8788/v1`
+4. Port not in use? Switch with `npm run dev -- --port 9999` and update `base_url` accordingly
+
+---
+
+**Upstream returns 401 / `authentication_error`**
+
+Your `MIMO_API_KEY` (the one mimo2codex uses to call MiMo) is invalid. Get a new one at the [MiMo console](https://platform.xiaomimimo.com/#/console/api-keys). `sk-xxx` keys go with `https://api.xiaomimimo.com/v1`; `tp-xxx` keys go with `https://token-plan-cn.xiaomimimo.com/v1`.
+
+---
 
 ## FAQ
 

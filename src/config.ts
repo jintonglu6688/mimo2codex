@@ -14,13 +14,14 @@ const DEFAULTS = {
   baseUrl: "https://api.xiaomimimo.com/v1",
 };
 
-interface ParsedArgs {
+export interface ParsedArgs {
   host?: string;
   port?: number;
   baseUrl?: string;
   apiKey?: string;
   exposeReasoning?: boolean;
   verbose?: boolean;
+  envKey?: boolean;
   positional: string[];
   showHelp: boolean;
   showVersion: boolean;
@@ -62,6 +63,9 @@ export function parseArgv(argv: string[]): ParsedArgs {
       case "--verbose":
       case "-v":
         out.verbose = true;
+        break;
+      case "--env-key":
+        out.envKey = true;
         break;
       case "--help":
       case "-h":
