@@ -2,7 +2,7 @@
 
 > [English](./README.md) · 中文
 
-让**最新版** OpenAI Codex CLI / Codex 桌面端无缝接入**小米 MiMo V2.5** 的本地代理。把 Codex 的 Responses API 实时翻译成 MiMo 的 Chat Completions API，纯本地无状态。
+让**最新版** OpenAI Codex CLI / Codex 桌面端无缝接入**小米 MiMo V2.5** 与 **DeepSeek V4 Pro** 的本地代理。把 Codex 的 Responses API 实时翻译成上游的 Chat Completions API，按客户端发的 `model` 字段在 provider 之间自动路由。可配 admin Web 控制台。
 
 ![mimo2codex 安装与启动](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/images/npminstall.jpg)
 
@@ -15,11 +15,17 @@
 ## 支持
 
 - ✅ Codex CLI 0.x（`wire_api = "responses"`）+ 桌面端
+- ✅ 多 provider：**MiMo** + **DeepSeek**，同实例混用（按 `model` 字段路由）
+- ✅ MiMo 模型：`mimo-v2.5-pro` / `mimo-v2.5-pro[1m]` / `mimo-v2-flash`
+- ✅ DeepSeek 模型：`deepseek-v4-pro`（默认）/ `deepseek-v4-flash` / `deepseek-chat` / `deepseek-reasoner`
 - ✅ 工具调用——function tools、并行调用、`local_shell`、`custom`、MCP `namespace`
-- ✅ 联网搜索——翻译成 MiMo 原生 `web_search` builtin（需在控制台激活 Web Search Plugin）
+- ✅ 联网搜索——翻译成 MiMo 原生 `web_search` builtin（需在控制台激活 Web Search Plugin）；DeepSeek 路径自动跳过
 - ✅ 视觉——`mimo-v2.5` / `mimo-v2-omni` 走视觉路径；pro/flash 自动剥图 + 占位文本
 - ✅ 1M 长上下文——传 `mimo-v2.5-pro[1m]`
 - ✅ 思维链透传（`--no-reasoning` 隐藏）
+- ✅ MiMo 主机自动切换：`tp-*` key → token-plan 主机，`sk-*` key → pay-as-you-go 主机
+- ✅ 本地 Admin Web UI（`http://127.0.0.1:8788/admin/`）：模型清单 / 别名管理 / 聊天日志 / Token 统计 / Provider 配置
+- ✅ sqlite 持久化（默认 `~/.mimo2codex/data.db`，`--data-dir` 可改）
 - ✅ cc-switch 集成（`mimo2codex print-cc-switch` 输出粘贴片段）
 - ⚠️ **`/hatch` 自定义宠物生成**——纯 MiMo 做不到。Codex 的 `/hatch` 在客户端硬编码调 OpenAI 的 `image_gen` 工具，这步代理拦不住；MiMo 自己又没有图像生成 endpoint。绕路方案走 `mimoskill/`（免费，不要 OpenAI key），见下文。
 
@@ -52,18 +58,43 @@ irm https://raw.githubusercontent.com/7as0nch/mimo2codex/main/scripts/install.ps
 
 ## 使用
 
-### 1. 拿一个 MiMo API Key
+### 1. 拿 API Key
 
-去 [platform.xiaomimimo.com](https://platform.xiaomimimo.com) → 控制台 → API Keys 创建。`sk-` 开头是按量付费，`tp-` 开头是 Token 套餐。
+| Provider | 控制台 | Key 前缀 |
+|---|---|---|
+| MiMo | [platform.xiaomimimo.com](https://platform.xiaomimimo.com) → 控制台 → API Keys | `sk-`（按量）/ `tp-`（Token 套餐） |
+| DeepSeek | [api-docs.deepseek.com](https://api-docs.deepseek.com/zh-cn/) | `sk-` |
 
 ### 2. 启动代理
+
+**只用 MiMo**（默认）：
 
 ```bash
 export MIMO_API_KEY=sk-xxxxxxxxxxxxxxxx
 mimo2codex
 ```
 
-启动横幅会直接打印好该贴到 `~/.codex/` 的 `auth.json` 和 `config.toml` 内容。默认走 auth.json 方式——CLI 和桌面端都能用，不依赖任何环境变量。
+**只用 DeepSeek**：
+
+```bash
+export DS_API_KEY=sk-xxxxxxxxxxxxxxxx       # 或 DEEPSEEK_API_KEY
+mimo2codex --model ds
+```
+
+**两个 provider 同时启用**（请求按 `model` 字段自动路由——发 `mimo-v2.5-pro` 走 MiMo、发 `deepseek-v4-pro` 走 DeepSeek）：
+
+```bash
+export MIMO_API_KEY=sk-mimo-key
+export DS_API_KEY=sk-deepseek-key
+mimo2codex                           # 默认 mimo
+mimo2codex --model ds                # 默认 ds（未匹配的 model 字段走 ds）
+```
+
+启动横幅会直接打印好该贴到 `~/.codex/` 的 `auth.json` 和 `config.toml` 内容，并显示已启用的 provider、admin UI 地址、数据目录。默认走 auth.json 方式——CLI 和桌面端都能用，不依赖任何环境变量。
+
+> **`--model` 的语义**：决定**默认 / fallback** provider，不是硬开关。当客户端发的 `model` 字段命中任一已启用 provider 的目录（含别名）时，**自动按该 provider 路由**，与 `--model` 无关。`--model` 只在两种情况下生效：
+> 1. 只配了一个 provider 的 key——必须把 `--model` 指到那个 provider，否则启动报错
+> 2. 客户端发了未知的 model 字段（如 `gpt-4o`）——走 `--model` 指定 provider 的 `defaultModel`
 
 ### 3. 配置 Codex
 
@@ -96,15 +127,47 @@ codex
 
 cc-switch 的「获取模型」按钮调 `/v1/models`，mimo2codex 已实现——下拉里能直接选 `mimo-v2.5-pro` / `mimo-v2.5-pro[1m]` / `mimo-v2-flash`。
 
+## Admin 控制台
+
+启动后浏览器访问 `http://127.0.0.1:8788/admin/`。
+
+**概览**——24h / 7d / 30d Token 用量、错误率、按 provider/模型聚合的请求统计、模型映射记录、最近 10 条请求。
+
+![Admin 控制台 · 概览](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/images/admin-dashboard.png)
+
+**日志**——按 provider 过滤、按时间分页、按时间清理旧记录；状态码异常着色、错误片段就地展开。
+
+![Admin 控制台 · 聊天日志](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/images/admin-logs.png)
+
+**模型**——按 provider tab 切换；内置模型只读，可新增自定义模型 + 别名（客户端发的 model 字段 → 上游 ID 的映射）。
+
+**设置**——provider 状态、base URL、默认模型、UI 偏好。**API key 不在 UI 里存储**——必须走环境变量，UI 只展示状态 + 操作指引。
+
+数据存 sqlite（`~/.mimo2codex/data.db`），可 `--data-dir <path>` 改路径，或 `--no-admin` 关闭。
+
+### Provider 与模型 ID
+
+| Provider | 短码 | Env 变量 | 默认 baseUrl | 默认模型 | 模型清单 |
+|---|---|---|---|---|---|
+| MiMo | `mimo` | `MIMO_API_KEY` | `https://api.xiaomimimo.com/v1` | `mimo-v2.5-pro` | `mimo-v2.5-pro` / `mimo-v2.5-pro[1m]` / `mimo-v2-flash` |
+| DeepSeek | `ds` | `DS_API_KEY` 或 `DEEPSEEK_API_KEY` | `https://api.deepseek.com/v1` | `deepseek-v4-pro` | `deepseek-v4-pro` / `deepseek-v4-flash` / `deepseek-chat`* / `deepseek-reasoner`* |
+
+*legacy，2026-07-24 弃用，对应 v4-flash 的非思考 / 思考双模。
+
+> MiMo 的 `tp-*` key 自动用 token-plan 主机（`https://token-plan-cn.xiaomimimo.com/v1`），`sk-*` key 自动用 pay-as-you-go 主机。如果你显式设了 `MIMO_BASE_URL` / `--base-url`，那就以你的为准；启动横幅在 key 前缀和主机不匹配时会打 ⚠ 警告。
+
 ## CLI 参数速查
 
 | 参数 | 环境变量 | 默认 | 说明 |
 |---|---|---|---|
+| `--model <shortcut>` | `MIMO2CODEX_DEFAULT_PROVIDER` | `mimo` | 默认 provider：`mimo` 或 `ds` |
 | `--port`, `-p` | `MIMO2CODEX_PORT` | `8788` | 监听端口 |
 | `--host` | `MIMO2CODEX_HOST` | `127.0.0.1` | 绑定地址 |
-| `--base-url` | `MIMO_BASE_URL` | `https://api.xiaomimimo.com/v1` | Token 套餐改 `https://token-plan-cn.xiaomimimo.com/v1` |
-| `--api-key` | `MIMO_API_KEY` | _必填_ | 上游 MiMo Key |
-| `--no-reasoning` | `MIMO2CODEX_NO_REASONING=1` | 关 | 终端不显示思考（多轮工具调用仍回填给 MiMo） |
+| `--base-url` | `MIMO_BASE_URL` / `DEEPSEEK_BASE_URL` | 见上表 | 当前默认 provider 的 base URL |
+| `--api-key` | `MIMO_API_KEY` / `DS_API_KEY` / `DEEPSEEK_API_KEY` | _至少一个必填_ | 当前默认 provider 的 key（其他 provider 走对应 env 变量） |
+| `--data-dir <path>` | `MIMO2CODEX_DATA_DIR` | `~/.mimo2codex` | sqlite + admin UI 数据目录 |
+| `--no-admin` | `MIMO2CODEX_NO_ADMIN=1` | 关 | 关闭 admin UI 与 sqlite 日志 |
+| `--no-reasoning` | `MIMO2CODEX_NO_REASONING=1` | 关 | 终端不显示思考（多轮工具调用仍回填给上游） |
 | `--verbose`, `-v` | `MIMO2CODEX_VERBOSE=1` | 关 | 打印每次翻译的请求体 |
 
 子命令：
@@ -165,6 +228,57 @@ MiMo 的图像 API 要求每条带图消息必须同时有 `text` part。mimo2co
 是老版本。新版 mimo2codex 会自动捕获这个 400、剥掉 web_search 重试，并在本次进程里记住"插件未激活"，后续请求自动跳过 web_search——**不会再报错**。升到最新即可：`npm update -g mimo2codex`（或 `git pull && npm run build`）。
 
 如果你**确实**想让联网搜索工作，去 [MiMo 控制台 → 插件管理](https://platform.xiaomimimo.com/#/console/plugin) 激活 Web Search Plugin（独立计费），然后重启 mimo2codex 即可。
+
+</details>
+
+<details>
+<summary><b>启动横幅打 ⚠ 警告 "sk-* key 通常需要 pay-as-you-go 主机..." / "tp-* key 通常需要 token-plan 主机..."</b></summary>
+
+`MIMO_BASE_URL` 残留在 shell 环境里覆盖了基于 key 前缀的自动推断。优先级是 `--base-url > MIMO_BASE_URL > 键前缀推断 > 默认`，env 比推断高。
+
+PowerShell：
+
+```powershell
+echo $env:MIMO_BASE_URL                                          # 看一下
+Remove-Item Env:MIMO_BASE_URL                                    # 当前会话清掉
+[Environment]::GetEnvironmentVariable('MIMO_BASE_URL','User')    # 看用户级
+[Environment]::SetEnvironmentVariable('MIMO_BASE_URL',$null,'User')  # 永久清掉用户级
+```
+
+bash / zsh：
+
+```bash
+echo $MIMO_BASE_URL
+unset MIMO_BASE_URL
+```
+
+清掉后 `sk-*` 自动走 `https://api.xiaomimimo.com/v1`，`tp-*` 自动走 `https://token-plan-cn.xiaomimimo.com/v1`。
+
+</details>
+
+<details>
+<summary><b>DeepSeek 报 401 Unauthorized</b></summary>
+
+确认走了 `DS_API_KEY` 或 `DEEPSEEK_API_KEY`，并且 key 没贴错（DeepSeek 的 key 只在它自家控制台拿，不和 MiMo 互通）。
+
+```bash
+mimo2codex --model ds --verbose
+# 启动横幅会显示 api key: sk-x…xxxx，确认是 DS 那把
+```
+
+</details>
+
+<details>
+<summary><b>Admin UI 打开是 503 "Admin UI not built"</b></summary>
+
+前端没构建过。`npm run build:all`（先 tsc 后端，再 vite 前端）一次性产出 `dist/cli.js` + `dist/web/`。或者只跑前端构建：`npm run web:install && npm run web:build`。
+
+</details>
+
+<details>
+<summary><b>better-sqlite3 在 npm install 时编译失败</b></summary>
+
+通常是用了非主流 Node 版本（或 Electron 内置 Node）。要求 Node ≥ 18，绝大多数系统自动下载 prebuilt 二进制，不需要本地编译器。如果只想用代理本身不要 admin UI，加 `--no-admin`，db 模块就不会被加载。
 
 </details>
 
@@ -246,11 +360,18 @@ bash mimoskill/scripts/install_pet.sh pet.png shiba
 ![项目结构](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/tutorial-video/assets/04-agent-docs.jpg)
 
 ```
-src/                 # TypeScript 源码（cli、server、translate、upstream、util）
-test/                # 46 个 vitest 用例
+src/
+  cli.ts, server.ts, config.ts        # 入口 + 路由 + 多 provider 配置
+  providers/{types,mimo,deepseek,registry}.ts   # Provider 抽象 + MiMo / DeepSeek 实现
+  upstream/openaiCompatClient.ts      # 通用 Chat Completions 客户端 + provider error hook
+  translate/                          # Responses API ↔ Chat Completions API 翻译
+  admin/router.ts                     # /admin/api/* REST + /admin/* SPA 静态托管
+  db/{index,logs,settings,models}.ts  # better-sqlite3 持久化层 + migrations + seed
+test/                # 100 个 vitest 用例
+web/                 # Vite + React 18 控制台（构建产物 dist/web/）
 mimoskill/           # MiMo 辅助工具 + 宠物生成绕路方案
 scripts/install.{sh,ps1}  # 一键安装脚本
-dist/                # tsc 编译产物
+dist/                # tsc + vite 编译产物
 AGENTS.md            # Codex agent 说明（不要装 openai，用 mimoskill）
 PUBLISHING.md        # 维护者发布手册
 ```
@@ -260,12 +381,16 @@ PUBLISHING.md        # 维护者发布手册
 ```bash
 git clone https://github.com/7as0nch/mimo2codex && cd mimo2codex
 npm install
-npm run dev          # tsx 直接跑，不用构建
-npm test             # 46 个 vitest
-npm run build        # 产出 dist/
+npm run web:install  # 安装前端依赖（仅首次）
+npm run dev          # tsx 跑后端，不用构建（默认 admin UI 仍生效但需要先 web:build 一次）
+npm run web:dev      # 另开窗口跑 vite dev（5173，自动 proxy /admin/api → 8788）
+npm test             # 100 个 vitest
+npm run build        # 仅后端 → dist/cli.js
+npm run web:build    # 仅前端 → dist/web/
+npm run build:all    # 一把全打
 ```
 
-把本地代码注册成全局 `mimo2codex` 命令：`npm run build && npm link`。
+把本地代码注册成全局 `mimo2codex` 命令：`npm run build:all && npm link`。
 
 ## 许可证
 

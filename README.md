@@ -2,7 +2,7 @@
 
 > English · [中文文档](./README.zh.md)
 
-Local proxy that lets the **latest OpenAI Codex CLI / desktop** talk to **Xiaomi MiMo V2.5**, by translating Codex's Responses API ↔ MiMo's Chat Completions API on the fly. Stateless, no telemetry, runs on `127.0.0.1`.
+Local proxy that lets the **latest OpenAI Codex CLI / desktop** talk to **Xiaomi MiMo V2.5** and **DeepSeek V4 Pro**, by translating Codex's Responses API ↔ upstream Chat Completions on the fly. Per-request routing by `model` field, optional admin web console, runs on `127.0.0.1`.
 
 ![mimo2codex install + run](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/images/npminstall.jpg)
 
@@ -15,11 +15,17 @@ Conceptually a sibling of [openrouter](https://openrouter.ai), [claude-code-rout
 ## What works
 
 - ✅ Codex CLI `wire_api = "responses"` and Codex desktop app
+- ✅ Multi-provider — **MiMo** + **DeepSeek**, mixed within one process (per-request routing by `model` field)
+- ✅ MiMo models: `mimo-v2.5-pro` / `mimo-v2.5-pro[1m]` / `mimo-v2-flash`
+- ✅ DeepSeek models: `deepseek-v4-pro` (default) / `deepseek-v4-flash` / `deepseek-chat` / `deepseek-reasoner`
 - ✅ Tool calling — function tools, parallel calls, `local_shell`, `custom`, MCP `namespace`
-- ✅ Web search — translated to MiMo's native `web_search` builtin (requires plugin activation)
+- ✅ Web search — translated to MiMo's native `web_search` builtin (requires plugin activation); auto-skipped on DeepSeek
 - ✅ Vision — only `mimo-v2.5` and `mimo-v2-omni`; pro/flash auto-strip images with a placeholder
 - ✅ 1M context — pass `mimo-v2.5-pro[1m]`
 - ✅ Reasoning passthrough (with `--no-reasoning` to hide)
+- ✅ MiMo host auto-routing — `tp-*` keys → token-plan host, `sk-*` keys → pay-as-you-go host
+- ✅ Local admin web UI at `http://127.0.0.1:8788/admin/` — model catalog, alias mgmt, chat logs, token stats, provider config
+- ✅ sqlite persistence (default `~/.mimo2codex/data.db`, override with `--data-dir`)
 - ✅ cc-switch integration (`mimo2codex print-cc-switch` outputs paste-ready snippets)
 - ⚠️ **`/hatch` custom pet generation** — pure MiMo can't do this. Codex's `/hatch` is hardcoded to call OpenAI's `image_gen` tool client-side, and we can't intercept that from the proxy layer. MiMo also has no image-generation endpoint. Workaround via `mimoskill/` (free, no OpenAI key required) — see below.
 
@@ -52,18 +58,43 @@ Requires Node.js ≥ 18.
 
 ## Use
 
-### 1. Get a MiMo API key
+### 1. Get an API key
 
-[platform.xiaomimimo.com](https://platform.xiaomimimo.com) → Console → API Keys. Either pay-as-you-go (`sk-xxx`) or token-plan (`tp-xxx`).
+| Provider | Console | Key prefix |
+|---|---|---|
+| MiMo | [platform.xiaomimimo.com](https://platform.xiaomimimo.com) → Console → API Keys | `sk-` (pay-as-you-go) / `tp-` (token-plan) |
+| DeepSeek | [api-docs.deepseek.com](https://api-docs.deepseek.com/zh-cn/) | `sk-` |
 
 ### 2. Start the proxy
+
+**MiMo only** (default):
 
 ```bash
 export MIMO_API_KEY=sk-xxxxxxxxxxxxxxxx
 mimo2codex
 ```
 
-The startup banner prints the exact `auth.json` + `config.toml` snippets to paste into `~/.codex/`. Default works for both Codex CLI and desktop without any env-var dance.
+**DeepSeek only**:
+
+```bash
+export DS_API_KEY=sk-xxxxxxxxxxxxxxxx       # or DEEPSEEK_API_KEY
+mimo2codex --model ds
+```
+
+**Both providers at once** (per-request routing — sending `mimo-v2.5-pro` goes to MiMo, sending `deepseek-v4-pro` goes to DeepSeek):
+
+```bash
+export MIMO_API_KEY=sk-mimo-key
+export DS_API_KEY=sk-deepseek-key
+mimo2codex                           # default fallback: mimo
+mimo2codex --model ds                # default fallback: ds (unknown model fields go to ds)
+```
+
+The startup banner prints the `auth.json` + `config.toml` snippets, the enabled providers, the admin UI URL and the data directory. Default works for both Codex CLI and desktop without any env-var dance.
+
+> **What `--model` actually does**: it picks the **default / fallback** provider — not a hard switch. When the client-supplied `model` field matches any enabled provider's catalog (including aliases), the request is routed to that provider regardless of `--model`. `--model` only matters when:
+> 1. Only one provider's key is configured — `--model` must point at it, otherwise startup errors out.
+> 2. The client sends a model id that no provider recognizes (e.g. `gpt-4o`) — it falls back to the `--model` provider's `defaultModel`.
 
 ### 3. Configure Codex
 
@@ -96,14 +127,46 @@ Pet, tool calls, reasoning, multi-turn — all just work. Pass `--no-reasoning` 
 
 cc-switch's "Fetch Models" button calls `/v1/models`, which mimo2codex implements — the dropdown auto-lists `mimo-v2.5-pro`, `mimo-v2.5-pro[1m]`, `mimo-v2-flash`.
 
+## Admin console
+
+Browse to `http://127.0.0.1:8788/admin/` after start.
+
+**Dashboard** — 24h / 7d / 30d token usage, error rate, requests aggregated by provider/model, model-mapping records, last 10 requests.
+
+![Admin console · dashboard](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/images/admin-dashboard.png)
+
+**Logs** — filter by provider, paginate by time, prune old records; status codes are color-coded and error snippets expand inline.
+
+![Admin console · chat logs](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/images/admin-logs.png)
+
+**Models** — provider tabs; builtin models are read-only, custom models + aliases (client-supplied `model` → upstream id) editable.
+
+**Settings** — provider status, base URL, default model, UI prefs. **API keys are not stored in the UI** — they must come from environment variables; the UI only displays status and copy-paste shell snippets.
+
+Data lives in sqlite (`~/.mimo2codex/data.db`); override with `--data-dir <path>` or disable entirely with `--no-admin`.
+
+### Providers and model ids
+
+| Provider | Shortcut | Env var | Default base URL | Default model | Models |
+|---|---|---|---|---|---|
+| MiMo | `mimo` | `MIMO_API_KEY` | `https://api.xiaomimimo.com/v1` | `mimo-v2.5-pro` | `mimo-v2.5-pro` / `mimo-v2.5-pro[1m]` / `mimo-v2-flash` |
+| DeepSeek | `ds` | `DS_API_KEY` or `DEEPSEEK_API_KEY` | `https://api.deepseek.com/v1` | `deepseek-v4-pro` | `deepseek-v4-pro` / `deepseek-v4-flash` / `deepseek-chat`* / `deepseek-reasoner`* |
+
+*legacy, deprecated 2026-07-24, both alias the v4-flash thinking / non-thinking modes.
+
+> MiMo's `tp-*` keys auto-route to the token-plan host (`https://token-plan-cn.xiaomimimo.com/v1`); `sk-*` keys use the pay-as-you-go host. Setting `MIMO_BASE_URL` / `--base-url` explicitly overrides this; the startup banner prints a ⚠ warning if your key prefix and host don't match.
+
 ## CLI flags
 
 | Flag | Env | Default | Notes |
 |---|---|---|---|
+| `--model <shortcut>` | `MIMO2CODEX_DEFAULT_PROVIDER` | `mimo` | default provider: `mimo` or `ds` |
 | `--port`, `-p` | `MIMO2CODEX_PORT` | `8788` | listen port |
 | `--host` | `MIMO2CODEX_HOST` | `127.0.0.1` | bind host |
-| `--base-url` | `MIMO_BASE_URL` | `https://api.xiaomimimo.com/v1` | use `https://token-plan-cn.xiaomimimo.com/v1` for `tp-*` keys |
-| `--api-key` | `MIMO_API_KEY` | _required_ | upstream MiMo key |
+| `--base-url` | `MIMO_BASE_URL` / `DEEPSEEK_BASE_URL` | see table above | base URL for the default provider |
+| `--api-key` | `MIMO_API_KEY` / `DS_API_KEY` / `DEEPSEEK_API_KEY` | _at least one required_ | api key for the default provider (other providers read their own env vars) |
+| `--data-dir <path>` | `MIMO2CODEX_DATA_DIR` | `~/.mimo2codex` | sqlite + admin UI data directory |
+| `--no-admin` | `MIMO2CODEX_NO_ADMIN=1` | off | disable the admin UI + sqlite logging |
 | `--no-reasoning` | `MIMO2CODEX_NO_REASONING=1` | off | hide reasoning from Codex (still preserved between turns) |
 | `--verbose`, `-v` | `MIMO2CODEX_VERBOSE=1` | off | log every translated request body |
 
@@ -174,6 +237,57 @@ Already fixed — known server-side tools (`code_interpreter`, `image_generation
 You're on an old build. Newer mimo2codex catches this 400 automatically: it strips `web_search` and retries, then skips it for the rest of the session. Update with `npm update -g mimo2codex` (or `git pull && npm run build`) and the error stops appearing.
 
 If you actually want web search to work upstream, activate the Web Search Plugin at [MiMo console → Plugin Management](https://platform.xiaomimimo.com/#/console/plugin) (separately billed), then restart mimo2codex.
+
+</details>
+
+<details>
+<summary><b>Startup banner shows ⚠ "sk-* key needs the pay-as-you-go host..." / "tp-* key needs the token-plan host..."</b></summary>
+
+Stale `MIMO_BASE_URL` in your shell is overriding the key-prefix inference. Resolution priority is `--base-url > MIMO_BASE_URL > key-prefix inference > default`, so env wins over inference.
+
+PowerShell:
+
+```powershell
+echo $env:MIMO_BASE_URL                                            # check
+Remove-Item Env:MIMO_BASE_URL                                      # clear in current session
+[Environment]::GetEnvironmentVariable('MIMO_BASE_URL','User')      # check user-level
+[Environment]::SetEnvironmentVariable('MIMO_BASE_URL',$null,'User')  # remove user-level permanently
+```
+
+bash / zsh:
+
+```bash
+echo $MIMO_BASE_URL
+unset MIMO_BASE_URL
+```
+
+Once cleared, `sk-*` keys auto-use `https://api.xiaomimimo.com/v1` and `tp-*` keys auto-use `https://token-plan-cn.xiaomimimo.com/v1`.
+
+</details>
+
+<details>
+<summary><b>DeepSeek returns 401 Unauthorized</b></summary>
+
+Confirm `DS_API_KEY` (or `DEEPSEEK_API_KEY`) is what's actually being picked up — DeepSeek keys are issued on the DeepSeek console only and don't interchange with MiMo keys.
+
+```bash
+mimo2codex --model ds --verbose
+# The startup banner prints `api key: sk-x…xxxx` — verify it's the DS one.
+```
+
+</details>
+
+<details>
+<summary><b>Admin UI returns 503 "Admin UI not built"</b></summary>
+
+The frontend bundle hasn't been built yet. Run `npm run build:all` (compiles backend with tsc, then frontend with vite) to populate `dist/web/`. To build only the frontend: `npm run web:install && npm run web:build`.
+
+</details>
+
+<details>
+<summary><b>better-sqlite3 fails to compile during npm install</b></summary>
+
+Usually caused by an unusual Node distribution (e.g., Electron-bundled Node). Node ≥ 18 from nodejs.org normally pulls a prebuilt binary without invoking node-gyp. If you only want the proxy and not the admin UI, pass `--no-admin` — the db module is not loaded in that mode.
 
 </details>
 
@@ -255,11 +369,18 @@ For higher quality, set `PET_OPENAI_API_KEY=sk-real-openai-key` (separate from `
 ![Project structure](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/tutorial-video/assets/04-agent-docs.jpg)
 
 ```
-src/                 # TypeScript source (cli, server, translate, upstream, util)
-test/                # 46 vitest tests
+src/
+  cli.ts, server.ts, config.ts        # entry, routing, multi-provider config
+  providers/{types,mimo,deepseek,registry}.ts   # Provider abstraction + MiMo / DeepSeek impls
+  upstream/openaiCompatClient.ts      # generic Chat Completions client + provider error hook
+  translate/                          # Responses ↔ Chat Completions translation
+  admin/router.ts                     # /admin/api/* REST + /admin/* SPA static hosting
+  db/{index,logs,settings,models}.ts  # better-sqlite3 layer + migrations + seed
+test/                # 100 vitest cases
+web/                 # Vite + React 18 admin console (builds to dist/web/)
 mimoskill/           # MiMo helpers + pet generation workaround
 scripts/install.{sh,ps1}  # one-liner bootstrap
-dist/                # tsc output (generated)
+dist/                # tsc + vite output (generated)
 AGENTS.md            # Codex-agent instructions (don't import openai, use mimoskill)
 PUBLISHING.md        # maintainer release runbook
 ```
@@ -269,12 +390,16 @@ PUBLISHING.md        # maintainer release runbook
 ```bash
 git clone https://github.com/7as0nch/mimo2codex && cd mimo2codex
 npm install
-npm run dev          # tsx, no build step
-npm test             # 46 vitest cases
-npm run build        # produces dist/
+npm run web:install  # frontend deps (first run only)
+npm run dev          # backend via tsx, no build step
+npm run web:dev      # vite dev server (5173, proxies /admin/api → 8788) — separate terminal
+npm test             # 100 vitest cases
+npm run build        # backend only → dist/cli.js
+npm run web:build    # frontend only → dist/web/
+npm run build:all    # both at once
 ```
 
-To register `mimo2codex` globally from your local checkout: `npm run build && npm link`.
+To register `mimo2codex` globally from your local checkout: `npm run build:all && npm link`.
 
 ## License
 

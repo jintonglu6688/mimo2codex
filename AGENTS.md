@@ -1,9 +1,12 @@
 # Agent instructions for the mimo2codex repo
 
 This repo is a local proxy that lets the latest OpenAI Codex CLI / desktop talk
-to **Xiaomi MiMo V2.5** by translating the Responses API to MiMo's Chat
-Completions API. When you (the agent) run inside Codex pointed at this proxy,
-the chat backend is **MiMo, not OpenAI** — adjust your assumptions accordingly.
+to **Xiaomi MiMo V2.5** and **DeepSeek V4 Pro** by translating the Responses
+API to upstream Chat Completions. Routing is per-request: the client-supplied
+`model` field decides which provider serves the request (see `src/providers/`
+and `src/server.ts:selectProvider`). When you (the agent) run inside Codex
+pointed at this proxy, the chat backend is **MiMo or DeepSeek, not OpenAI** —
+adjust your assumptions accordingly.
 
 ## Hard rules
 
@@ -28,8 +31,20 @@ the chat backend is **MiMo, not OpenAI** — adjust your assumptions accordingly
 
 ## Where things are
 
-- `src/` — TypeScript source for the mimo2codex proxy itself (Node 18+).
-  Compiled to `dist/` via `npm run build`. Tests in `test/`.
+- `src/` — TypeScript source for the proxy (Node 18+). Compiled to `dist/`
+  via `npm run build`. Tests in `test/` (vitest, 100 cases).
+  - `providers/` — Provider abstraction (`types.ts`, `mimo.ts`, `deepseek.ts`,
+    `registry.ts`). MiMo-specific behavior (web_search builtin, thinking
+    injection, token-plan host inference) is confined to `mimo.ts` hooks; do
+    NOT leak it to the generic translate/upstream layers.
+  - `db/` — better-sqlite3 persistence (chat logs, model catalog, aliases,
+    settings). Default at `~/.mimo2codex/data.db`. Disabled with `--no-admin`.
+  - `admin/router.ts` — `/admin/api/*` REST + SPA hosting at `/admin/`.
+  - `translate/`, `upstream/`, `util/` — generic, provider-agnostic.
+- `web/` — Vite + React 18 admin console (separate workspace). Builds to
+  `dist/web/`. Run `npm run web:install` once, then `npm run web:build` (or
+  `npm run build:all` to do both backend + frontend). Dev: `npm run web:dev`
+  on port 5173 with `/admin/api` proxied to 8788.
 - `scripts/install.sh` and `scripts/install.ps1` — bootstrap scripts (clone or
   in-repo run, install deps, build, test).
 - `mimoskill/` — a self-contained directory with helpers for MiMo + workarounds
