@@ -112,18 +112,21 @@ async function handleResponses(
   //   - parallel_tool_calls: true        ← batch tool calls per turn
   //   - web_search forwarded to MiMo     ← model decides when to search
   //
-  // Note on web_search: if the user's MiMo account doesn't have the Web Search
-  // Plugin activated, MiMo returns 400 "webSearchEnabled is false". We do NOT
-  // silently strip + retry — that hides a real billing/feature issue. Instead
-  // we surface the error verbatim with a friendlier message (see mimoClient.ts)
-  // so the user activates the plugin (or accepts the limitation) and restarts.
+  // Note on web_search:
+  //   - On token-plan accounts (`tp-*` keys / token-plan-cn host), the Web
+  //     Search Plugin isn't available, so we proactively strip web_search
+  //     before forwarding (cfg.isTokenPlan).
+  //   - On pay-as-you-go accounts (`sk-*`), we keep forwarding. If the user
+  //     hasn't activated the plugin, MiMo returns 400 "webSearchEnabled is
+  //     false" — we surface that with a friendlier hint (see mimoClient.ts)
+  //     so the user activates the plugin and restarts.
   //
   // Note: we deliberately do NOT set `thinking: {type: "disabled"}` so that
   // MiMo keeps generating `reasoning_content`. The user typically wants to
   // see the thinking in the Codex terminal (use `--no-reasoning` to hide it).
   const chat = reqToChat(payload, {
     forceParallelToolCalls: true,
-    enableWebSearch: true,
+    enableWebSearch: !cfg.isTokenPlan,
   });
   chat.stream = !!payload.stream;
   const stream = !!payload.stream;

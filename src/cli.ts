@@ -149,6 +149,10 @@ function printStartupBanner(cfg: Config): void {
   // eslint-disable-next-line no-console
   console.log(`api key:     ${redactKey(cfg.apiKey)}`);
   // eslint-disable-next-line no-console
+  console.log(
+    `plan:        ${cfg.isTokenPlan ? "token-plan (web_search auto-disabled — plugin not available)" : "pay-as-you-go"}`
+  );
+  // eslint-disable-next-line no-console
   console.log(`reasoning:   ${cfg.exposeReasoning ? "passthrough" : "hidden"}`);
   // eslint-disable-next-line no-console
   console.log("");

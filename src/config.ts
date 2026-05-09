@@ -6,6 +6,14 @@ export interface Config {
   exposeReasoning: boolean;
   verbose: boolean;
   userAgent: string;
+  // True when the user is on MiMo's "token-plan" subscription (key starts with
+  // `tp-` or base-url points at `token-plan-cn.xiaomimimo.com`). Token-plan
+  // accounts don't have access to the Web Search Plugin, so we proactively
+  // strip web_search tools before forwarding — avoids the 400
+  // "webSearchEnabled is false" that would otherwise hit on every search-y
+  // turn. Pay-as-you-go (`sk-*`) accounts may or may not have activated the
+  // plugin, so we keep forwarding there and let the upstream error surface.
+  isTokenPlan: boolean;
 }
 
 const DEFAULTS = {
@@ -102,13 +110,17 @@ export function buildConfig(parsed: ParsedArgs, env: NodeJS.ProcessEnv, version:
     throw new Error("MIMO2CODEX_PORT must be a number");
   }
 
+  const baseUrl = parsed.baseUrl ?? env.MIMO_BASE_URL ?? DEFAULTS.baseUrl;
+  const isTokenPlan = /token-plan/i.test(baseUrl) || apiKey.startsWith("tp-");
+
   return {
     host: parsed.host ?? env.MIMO2CODEX_HOST ?? DEFAULTS.host,
     port: parsed.port ?? portFromEnv ?? DEFAULTS.port,
-    baseUrl: parsed.baseUrl ?? env.MIMO_BASE_URL ?? DEFAULTS.baseUrl,
+    baseUrl,
     apiKey,
     exposeReasoning: parsed.exposeReasoning ?? exposeReasoningEnv,
     verbose: parsed.verbose ?? verboseEnv,
     userAgent: `mimo2codex/${version}`,
+    isTokenPlan,
   };
 }
