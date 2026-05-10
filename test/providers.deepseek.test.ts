@@ -59,7 +59,7 @@ describe("deepseek provider", () => {
     expect(body.thinking).toEqual({ type: "enabled" });
   });
 
-  it("preprocessChat strips reasoning_content from assistant history (DS rejects it on input)", () => {
+  it("preprocessChat PRESERVES reasoning_content for V4 family (V4 requires it back in thinking mode)", () => {
     const body: ChatRequest = {
       model: "deepseek-v4-pro",
       messages: [
@@ -73,16 +73,34 @@ describe("deepseek provider", () => {
       ],
     };
     const out = deepseek.preprocessChat(body, dsCtx);
-    expect(out.messages[1].reasoning_content).toBeUndefined();
+    expect(out.messages[1].reasoning_content).toBe("let me think...");
     expect(out.messages[1].content).toBe("first answer");
-    // Original input is not mutated.
-    expect(body.messages[1].reasoning_content).toBe("let me think...");
   });
 
-  it("preprocessResponses strips reasoning_content re-injected by reqToChat", () => {
+  it("preprocessChat STRIPS reasoning_content for legacy deepseek-reasoner (R1 rejects it)", () => {
+    const body: ChatRequest = {
+      model: "deepseek-reasoner",
+      messages: [
+        { role: "user", content: "q" },
+        {
+          role: "assistant",
+          content: "a",
+          reasoning_content: "thoughts",
+        },
+        { role: "user", content: "follow-up" },
+      ],
+    };
+    const out = deepseek.preprocessChat(body, dsCtx);
+    expect(out.messages[1].reasoning_content).toBeUndefined();
+    expect(out.messages[1].content).toBe("a");
+    // Original input is not mutated.
+    expect(body.messages[1].reasoning_content).toBe("thoughts");
+  });
+
+  it("preprocessResponses preserves reasoning_content for V4 family (multi-turn requirement)", () => {
     // Codex echoes prior reasoning items in the next request's input. reqToChat
-    // re-emits them as `reasoning_content` on the assistant message (for MiMo's
-    // sake). DeepSeek 400s on that — preprocessResponses must scrub it.
+    // re-emits them as `reasoning_content` on the assistant message. The V4
+    // family demands this on every prior turn — strip would 400 the next call.
     const req: ResponsesRequest = {
       model: "deepseek-v4-pro",
       input: [
@@ -102,17 +120,31 @@ describe("deepseek provider", () => {
           arguments: '{"q":"cats"}',
         },
         { type: "function_call_output", call_id: "call_1", output: "5 results" },
-        { type: "message", role: "user", content: "thanks, more please" },
+      ],
+    };
+    const chat = deepseek.preprocessResponses(req, dsCtx);
+    const assistantWithTool = chat.messages.find((m) => m.tool_calls?.length);
+    expect(assistantWithTool).toBeDefined();
+    expect(assistantWithTool!.reasoning_content).toBe("I should call search");
+    expect(assistantWithTool!.tool_calls![0].function.name).toBe("search");
+  });
+
+  it("preprocessResponses still STRIPS reasoning_content when client model is deepseek-reasoner", () => {
+    const req: ResponsesRequest = {
+      model: "deepseek-reasoner",
+      input: [
+        { type: "message", role: "user", content: "search for cats" },
+        {
+          type: "reasoning",
+          summary: [{ type: "summary_text", text: "thoughts" }],
+        },
+        { type: "message", role: "user", content: "follow-up" },
       ],
     };
     const chat = deepseek.preprocessResponses(req, dsCtx);
     for (const m of chat.messages) {
       expect(m.reasoning_content).toBeUndefined();
     }
-    // Tool calls and content should still be intact.
-    const assistantWithTool = chat.messages.find((m) => m.tool_calls?.length);
-    expect(assistantWithTool).toBeDefined();
-    expect(assistantWithTool!.tool_calls![0].function.name).toBe("search");
   });
 
   it("enhanceError returns null (no DS-specific error mapping yet)", () => {

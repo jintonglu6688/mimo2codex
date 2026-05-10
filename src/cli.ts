@@ -20,10 +20,6 @@ OPTIONS
   -p, --port <n>          listen port (default: 8788, env: MIMO2CODEX_PORT)
       --host <h>          bind host (default: 127.0.0.1, env: MIMO2CODEX_HOST)
       --model <shortcut>  default upstream provider: "mimo" (default) or "ds" (DeepSeek)
-      --long-context      for print-config / print-cc-switch — pick the largest-window
-                          model variant of the chosen provider (MiMo → mimo-v2.5-pro[1m]
-                          / 1M; DeepSeek → deepseek-v4-pro / 1M, already default).
-                          Emits the matching model_context_window automatically.
       --base-url <url>    base url for the default provider (env: MIMO_BASE_URL / DEEPSEEK_BASE_URL)
       --api-key <key>     api key for the default provider (env varies — see below) — required
       --no-reasoning      hide reasoning_content from Codex (still re-injected for multi-turn quality)
@@ -85,32 +81,21 @@ function deepseekMaxOutput(): number {
   return 393_216;
 }
 
-// Pick the provider's default model. `--long-context` upgrades to the largest-
-// context builtin variant for that provider (MiMo → mimo-v2.5-pro[1m]; DeepSeek
-// is already 1M by default). Alternative model ids are also surfaced as a
-// comment block so users can swap by editing one line in cc-switch's textarea.
+// Pick the provider's default model + look up its context window. Alternative
+// model ids (including the long-context [1m] variants) are surfaced via the
+// `alternativesComment` block embedded in the printed toml — users edit two
+// lines (model + model_context_window) to switch.
 function resolveSnippetTarget(parsed: ParsedArgs): SnippetTarget {
   const providerId: ProviderId = parsed.model
     ? (byShortcut(parsed.model)?.id ?? "mimo")
     : "mimo";
   const provider = PROVIDERS[providerId];
-  let modelMeta = provider.builtinModels.find((m) => m.id === provider.defaultModel);
-  if (parsed.longContext) {
-    const longest = provider.builtinModels
-      .filter((m) => !m.deprecatedAfter && m.contextWindow)
-      .reduce(
-        (best, m) =>
-          !best || (m.contextWindow ?? 0) > (best.contextWindow ?? 0) ? m : best,
-        modelMeta
-      );
-    if (longest) modelMeta = longest;
-  }
-  const modelId = modelMeta?.id ?? provider.defaultModel;
+  const modelMeta = provider.builtinModels.find((m) => m.id === provider.defaultModel);
   return {
     providerId,
     providerKey: providerId === "mimo" ? "mimo" : "mimo2codex",
     providerLabel: provider.displayName,
-    modelId,
+    modelId: provider.defaultModel,
     contextWindow: modelMeta?.contextWindow,
     maxOutputTokens: providerId === "deepseek" ? deepseekMaxOutput() : undefined,
   };
@@ -130,7 +115,13 @@ function modelTuningLines(t: SnippetTarget): string {
 function alternativesComment(t: SnippetTarget): string {
   const provider = PROVIDERS[t.providerId];
   const lines: string[] = [];
-  lines.push(`# Other ${provider.displayName} models (edit the lines above to switch):`);
+  lines.push(
+    `# Switch model — replace the two lines above (model = ... and`,
+    `# model_context_window = ...) with one of the entries below. The 1M variants`,
+    `# require (1) your account to actually offer them upstream, and (2) Codex`,
+    `# client to honor model_context_window (older versions cap at ~256K).`,
+    `# Available ${provider.displayName} models:`
+  );
   for (const m of provider.builtinModels) {
     if (m.deprecatedAfter) continue; // hide legacy aliases from the suggestion list
     const ctx = m.contextWindow

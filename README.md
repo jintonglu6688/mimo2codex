@@ -147,19 +147,29 @@ Data lives in sqlite (`~/.mimo2codex/data.db`); override with `--data-dir <path>
 
 ### Enabling 1M long context
 
-The Codex client **doesn't read context window from the proxy** — it carries its own model metadata table and falls back to ~256K for any model name it doesn't recognize. So even when the proxy forwards to `mimo-v2.5-pro[1m]` or `deepseek-v4-pro`, the bottom-left context badge in Codex still shows 258K. To actually use 1M, you must declare `model_context_window` explicitly in `config.toml`.
+The Codex client **doesn't read the context window from the proxy** — it reads `model_context_window` from `config.toml`. When unset, Codex falls back to ~256K, so even when the proxy forwards to `mimo-v2.5-pro[1m]` or `deepseek-v4-pro`, the bottom-left context badge stays at 258K.
 
-Fastest path:
+`mimo2codex print-config` already emits `model_context_window` for the default model and lists every builtin variant for that provider in an inline comment block:
 
-```bash
-mimo2codex --long-context print-config              # MiMo 1M (picks mimo-v2.5-pro[1m])
-mimo2codex --model ds --long-context print-config   # DeepSeek 1M (default already 1M)
-mimo2codex --long-context print-cc-switch           # cc-switch paste blocks
+```toml
+model = "mimo-v2.5-pro"
+model_provider = "mimo"
+model_context_window = 128000
+
+# Switch model — replace the two lines above with one entry below.
+# Available MiMo (via mimo2codex) models:
+#   model = "mimo-v2.5-pro"   model_context_window = 128000 (current)
+#   model = "mimo-v2.5-pro[1m]"   model_context_window = 1000000
+#   model = "mimo-v2-flash"   model_context_window = 128000
 ```
 
-The output already includes `model_context_window = 1000000` (and `model_max_output_tokens = 393216` for DeepSeek), plus a comment block listing the other builtin models so cc-switch users can swap by editing one line in the textarea — no proxy restart needed.
+To use 1M, replace the `model =` and `model_context_window =` pair with the 1M entry from the list. cc-switch users can edit the same lines directly in cc-switch's textarea — no proxy restart needed.
 
-After writing to `~/.codex/config.toml`, **fully quit and relaunch Codex** (desktop: system tray → Quit, not just close the window). The bottom-left context badge then jumps from 258K to 1M.
+After writing to `~/.codex/config.toml`, **fully quit and relaunch Codex** (desktop: system tray → Quit, not just close the window).
+
+> ⚠ **Whether 1M actually engages depends on two things outside the proxy**:
+> 1. **Your upstream account** — for instance MiMo's `mimo-v2.5-pro[1m]` is gated on certain plans; you'll see upstream `400 "Not supported model"` if your account doesn't include it. Confirm with `curl https://api.xiaomimimo.com/v1/models -H "Authorization: Bearer $MIMO_API_KEY"`.
+> 2. **Your Codex client version** — older desktop builds ignore `model_context_window` and hard-cap at 256K. The CLI usually ships fixes earlier; if `codex` in a terminal shows 1M but the desktop badge still shows 258K, update the desktop app.
 
 ### Providers and model ids
 

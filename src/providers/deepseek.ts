@@ -68,25 +68,27 @@ export const deepseek: Provider = {
       forceParallelToolCalls: false,
       enableWebSearch: false,
     });
-    // Drop any MiMo-specific fields that may have leaked in.
     delete chat.thinking;
     delete chat.enable_thinking;
-    // DeepSeek's reasoning models (deepseek-v4-pro, -reasoner, -v4-flash in
-    // thinking mode) reject requests whose history contains assistant messages
-    // with `reasoning_content` — they 400 with "The `reasoning_content` in the
-    // thinking mode must be passed back to the API" (the wording is a CN→EN
-    // glitch; it actually means "must NOT be sent back as input"). reqToChat
-    // re-injects reasoning_content for MiMo's sake; we strip it here for DS.
-    stripReasoningContent(chat);
+    // The V4 family REQUIRES `reasoning_content` to be echoed back on every
+    // prior assistant message in thinking mode (400: "The reasoning_content
+    // in the thinking mode must be passed back to the API"). reqToChat
+    // already re-injects it from Codex's reasoning items, so we leave it
+    // alone. The legacy `deepseek-reasoner` is the inverse — it 400s if
+    // reasoning_content IS present in the input — so we strip there.
+    if (isLegacyR1Model(chat.model)) {
+      stripReasoningContent(chat);
+    }
     return chat;
   },
 
   preprocessChat(req: ChatRequest, _ctx: PreprocessCtx): ChatRequest {
-    // Strip MiMo-specific fields + previous-turn reasoning_content from chat
-    // passthrough so a misrouted request doesn't 400 at DeepSeek.
-    const out = { ...req, messages: req.messages.map(cloneWithoutReasoning) };
+    const out = { ...req };
     delete out.thinking;
     delete out.enable_thinking;
+    if (isLegacyR1Model(out.model)) {
+      out.messages = out.messages.map(cloneWithoutReasoning);
+    }
     return out;
   },
 
@@ -94,6 +96,14 @@ export const deepseek: Provider = {
     return null;
   },
 };
+
+// Legacy DeepSeek-R1 (`deepseek-reasoner`) rejects requests whose input
+// includes `reasoning_content`. The V4 family (deepseek-v4-pro, v4-flash) is
+// the opposite — it REQUIRES the field on prior assistant messages whenever
+// thinking mode is on. So strip only for R1.
+function isLegacyR1Model(model: string): boolean {
+  return model === "deepseek-reasoner";
+}
 
 function cloneWithoutReasoning(m: ChatRequest["messages"][number]): ChatRequest["messages"][number] {
   if (!("reasoning_content" in m) || m.reasoning_content == null) return m;
