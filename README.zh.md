@@ -21,7 +21,6 @@
 - ✅ 工具调用——function tools、并行调用、`local_shell`、`custom`、MCP `namespace`
 - ✅ 联网搜索——翻译成 MiMo 原生 `web_search` builtin（需在控制台激活 Web Search Plugin）；DeepSeek 路径自动跳过
 - ✅ 视觉——`mimo-v2.5` / `mimo-v2-omni` 走视觉路径；pro/flash 自动剥图 + 占位文本
-- ✅ 1M 长上下文——传 `mimo-v2.5-pro[1m]`
 - ✅ 思维链透传（`--no-reasoning` 隐藏）
 - ✅ MiMo 主机自动切换：`tp-*` key → token-plan 主机，`sk-*` key → pay-as-you-go 主机
 - ✅ 本地 Admin Web UI（`http://127.0.0.1:8788/admin/`）：模型清单 / 别名管理 / 聊天日志 / Token 统计 / Provider 配置

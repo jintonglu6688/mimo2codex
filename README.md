@@ -21,7 +21,6 @@ Conceptually a sibling of [openrouter](https://openrouter.ai), [claude-code-rout
 - ✅ Tool calling — function tools, parallel calls, `local_shell`, `custom`, MCP `namespace`
 - ✅ Web search — translated to MiMo's native `web_search` builtin (requires plugin activation); auto-skipped on DeepSeek
 - ✅ Vision — only `mimo-v2.5` and `mimo-v2-omni`; pro/flash auto-strip images with a placeholder
-- ✅ 1M context — pass `mimo-v2.5-pro[1m]`
 - ✅ Reasoning passthrough (with `--no-reasoning` to hide)
 - ✅ MiMo host auto-routing — `tp-*` keys → token-plan host, `sk-*` keys → pay-as-you-go host
 - ✅ Local admin web UI at `http://127.0.0.1:8788/admin/` — model catalog, alias mgmt, chat logs, token stats, provider config
