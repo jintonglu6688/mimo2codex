@@ -264,6 +264,7 @@ async function handleResponses(
   const chat = provider.preprocessResponses(payload, {
     runtime,
     exposeReasoning: cfg.exposeReasoning,
+    dataDir: cfg.dataDir,
   });
   chat.model = upstreamModel;
   chat.stream = !!payload.stream;

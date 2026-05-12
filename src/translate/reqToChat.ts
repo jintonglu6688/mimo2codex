@@ -1,3 +1,8 @@
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import type {
   ChatContentPart,
   ChatMessage,
@@ -16,6 +21,39 @@ import type {
 } from "./types.js";
 import { log } from "../util/log.js";
 
+// Material a stripped image so the agent can pass the path to ocr.py.
+// - data: URL  → decode, write to <dropDir>/cache/images/<sha1>.<ext>, return path
+// - http(s):   → return as-is (ocr.py accepts URLs directly)
+// - other:     → null (can't materialize)
+// `dropDir` is typically cfg.dataDir; falls back to os.tmpdir()/mimo2codex-images.
+function materializeStrippedImage(imageUrl: string, dropDir?: string): string | null {
+  try {
+    if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+      return imageUrl;
+    }
+    if (!imageUrl.startsWith("data:")) return null;
+    const m = /^data:([^;,]+)(?:;base64)?,(.*)$/s.exec(imageUrl);
+    if (!m) return null;
+    const mime = m[1] || "image/png";
+    const isBase64 = imageUrl.startsWith(`data:${mime};base64,`) || /;base64,/.test(imageUrl);
+    const payload = m[2];
+    const bytes = isBase64
+      ? Buffer.from(payload, "base64")
+      : Buffer.from(decodeURIComponent(payload), "utf-8");
+    const ext = mime.split("/")[1]?.split("+")[0] || "png";
+    const hash = createHash("sha1").update(bytes).digest("hex").slice(0, 16);
+    const base = dropDir && dropDir.length > 0 ? dropDir : join(tmpdir(), "mimo2codex");
+    const dir = join(base, "cache", "images");
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const filePath = join(dir, `${hash}.${ext}`);
+    if (!existsSync(filePath)) writeFileSync(filePath, bytes);
+    return filePath;
+  } catch (e) {
+    log.warn(`failed to materialize stripped image: ${(e as Error).message}`);
+    return null;
+  }
+}
+
 // Per MiMo docs (https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/multimodal-understanding/image-understanding),
 // only `mimo-v2.5` and `mimo-v2-omni` (and *-omni* variants) accept image
 // input. The other v2.5 variants (mimo-v2.5-pro, mimo-v2.5-pro[1m],
@@ -31,12 +69,13 @@ function modelSupportsImages(model: string): boolean {
 
 function partsToChatContent(
   parts: ResponsesContentPart[] | string,
-  ctx: { model: string; supportsImages: boolean }
+  ctx: { model: string; supportsImages: boolean; imageDropDir?: string }
 ): string | ChatContentPart[] {
   if (typeof parts === "string") return parts;
 
   const out: ChatContentPart[] = [];
-  let droppedImages = 0;
+  const droppedRefs: string[] = [];
+  let droppedCount = 0;
   for (const p of parts) {
     if (p.type === "input_text" || p.type === "output_text") {
       // Defensive: Codex/clients sometimes send malformed text parts where
@@ -50,7 +89,9 @@ function partsToChatContent(
       if (ctx.supportsImages) {
         out.push({ type: "image_url", image_url: { url: p.image_url, detail: p.detail } });
       } else {
-        droppedImages++;
+        droppedCount++;
+        const ref = materializeStrippedImage(p.image_url, ctx.imageDropDir);
+        if (ref) droppedRefs.push(ref);
       }
     } else if (p.type === "input_file") {
       // MiMo doesn't natively support file inputs in chat completions.
@@ -61,14 +102,26 @@ function partsToChatContent(
     // silently skipped — they'd cause MiMo to 400 if forwarded as-is.
   }
 
-  if (droppedImages > 0) {
+  if (droppedCount > 0) {
     log.warn(
-      `dropped ${droppedImages} image part(s) — model "${ctx.model}" does not support image input (use mimo-v2.5 or mimo-v2-omni for vision)`
+      `dropped ${droppedCount} image part(s) — model "${ctx.model}" does not support image input (use mimo-v2.5 or mimo-v2-omni for vision); materialized ${droppedRefs.length} to disk`
     );
-    // Add a short inline note so the model knows context was lost.
+    // Tell the agent BOTH that images were stripped AND where to find them
+    // so it can OCR without asking the user for a path. Codex / DS / Qwen
+    // etc. read this and route to mimoskill/scripts/ocr.py per AGENTS.md.
+    const refList = droppedRefs.length > 0
+      ? droppedRefs.map((r, i) => `  ${i + 1}. ${r}`).join("\n")
+      : "  (could not materialize image — unknown URL form)";
+    const plural = droppedCount > 1 ? "s" : "";
     out.push({
       type: "text",
-      text: `[${droppedImages} image attachment${droppedImages > 1 ? "s" : ""} omitted: this model does not support image input. Switch to mimo-v2.5 or mimo-v2-omni for vision tasks, OR run \`python3 mimoskill/scripts/ocr.py <path>\` to OCR/describe via mimo-v2.5 without changing the chat model.]`,
+      text:
+        `[${droppedCount} image attachment${plural} omitted because the active model can't ingest images.\n` +
+        `The proxy materialized them to disk so you can OCR / describe without asking the user for a path:\n` +
+        refList +
+        `\nTo extract text or describe, run (zero-key — free pollinations fallback when MIMO_API_KEY is unset):\n` +
+        `  python3 mimoskill/scripts/ocr.py <path-from-above>\n` +
+        `Or switch the chat model to mimo-v2.5 / mimo-v2-omni to see images directly.]`,
     });
   }
 
@@ -134,7 +187,7 @@ function toolOutputToString(output: ResponsesFunctionCallOutputItem["output"]): 
 
 function messageItemToChat(
   item: ResponsesMessageItem,
-  ctx: { model: string; supportsImages: boolean }
+  ctx: { model: string; supportsImages: boolean; imageDropDir?: string }
 ): ChatMessage {
   const role = item.role === "developer" ? "system" : item.role;
   const content = partsToChatContent(item.content, ctx);
@@ -214,6 +267,10 @@ export interface ReqToChatOpts {
   // builtin. Default OFF — MiMo's Web Search Plugin is separately billed and
   // returns 400 "webSearchEnabled is false" if not activated.
   enableWebSearch?: boolean;
+  // Directory where stripped images are materialized for non-vision models.
+  // Typically cfg.dataDir; falls back to os.tmpdir()/mimo2codex when unset.
+  // Lets the agent OCR pasted images without asking the user for a path.
+  imageDropDir?: string;
 }
 
 // Returns one or more ChatTools (a `namespace` wrapper can expand to many),
@@ -378,7 +435,7 @@ function flushAssistant(messages: ChatMessage[], state: AssemblyState): void {
 
 function inputItemsToMessages(
   items: ResponsesInputItem[],
-  ctx: { model: string; supportsImages: boolean }
+  ctx: { model: string; supportsImages: boolean; imageDropDir?: string }
 ): ChatMessage[] {
   const out: ChatMessage[] = [];
   const state: AssemblyState = {
@@ -481,6 +538,7 @@ export function reqToChat(req: ResponsesRequest, opts: ReqToChatOpts = {}): Chat
   const ctx = {
     model: req.model,
     supportsImages: modelSupportsImages(req.model),
+    imageDropDir: opts.imageDropDir,
   };
 
   if (req.instructions) {

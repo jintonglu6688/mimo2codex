@@ -60,13 +60,14 @@ export const deepseek: Provider = {
     return null;
   },
 
-  preprocessResponses(req: ResponsesRequest, _ctx: PreprocessCtx): ChatRequest {
+  preprocessResponses(req: ResponsesRequest, ctx: PreprocessCtx): ChatRequest {
     // DeepSeek is OpenAI Chat Completions compatible. No `thinking` field, no
     // `web_search` builtin (drop those tools), no MiMo-style force-parallel
     // override (respect the client's value).
     const chat = reqToChat(req, {
       forceParallelToolCalls: false,
       enableWebSearch: false,
+      imageDropDir: ctx.dataDir,
     });
     delete chat.thinking;
     delete chat.enable_thinking;

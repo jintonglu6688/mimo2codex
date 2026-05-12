@@ -36,6 +36,11 @@ export interface ProviderEnhancedError {
 export interface PreprocessCtx {
   runtime: ProviderRuntime;
   exposeReasoning: boolean;
+  // When the active model can't ingest images and the proxy strips them, the
+  // proxy materializes the image bytes to disk here so the agent (Codex) can
+  // pass the path to mimoskill/scripts/ocr.py. Empty/undefined → falls back
+  // to os.tmpdir() inside reqToChat. Typically `cfg.dataDir`.
+  dataDir?: string;
 }
 
 export interface Provider {

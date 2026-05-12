@@ -107,10 +107,11 @@ export function createGenericProvider(spec: GenericProviderSpec): Provider {
       return null;
     },
 
-    preprocessResponses(req: ResponsesRequest, _ctx: PreprocessCtx): ChatRequest {
+    preprocessResponses(req: ResponsesRequest, ctx: PreprocessCtx): ChatRequest {
       const chat = reqToChat(req, {
         forceParallelToolCalls: !!features.forceParallelToolCalls,
         enableWebSearch: !!features.webSearch,
+        imageDropDir: ctx.dataDir,
       });
       // Generic OpenAI-compat upstreams don't understand MiMo's `thinking`
       // family. Strip pre-emptively (reqToChat doesn't emit them, but a

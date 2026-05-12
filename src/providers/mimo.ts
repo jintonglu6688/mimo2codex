@@ -111,6 +111,7 @@ export const mimo: Provider = {
     return reqToChat(req, {
       forceParallelToolCalls: true,
       enableWebSearch: !ctx.runtime.flags.isTokenPlan,
+      imageDropDir: ctx.dataDir,
     });
   },
 

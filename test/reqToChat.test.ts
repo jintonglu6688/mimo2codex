@@ -1,3 +1,7 @@
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 import { reqToChat } from "../src/translate/reqToChat.js";
 import type { ResponsesRequest } from "../src/translate/types.js";
@@ -683,5 +687,105 @@ describe("reqToChat", () => {
       | { role: "tool"; tool_call_id: string; content: string }
       | undefined;
     expect(tool?.content).toBe("2026-05-12");
+  });
+
+  // Regression: when a user pastes an image into Codex with a non-vision chat
+  // model (DS / mimo-v2.5-pro / Qwen text-only), the proxy must NOT just leave
+  // a vague "<path>" placeholder — that produces the unhelpful agent reply
+  // "tell me the file path of the image". Instead, the data URL must be
+  // materialized to disk and the absolute path included in the placeholder so
+  // the agent can run `ocr.py <path>` without further user input.
+  it("non-vision model: data: image URL is materialized to disk and path embedded in placeholder", () => {
+    const dropDir = mkdtempSync(join(tmpdir(), "mimo2codex-test-"));
+    try {
+      // 1x1 transparent PNG (smallest valid PNG bytes)
+      const png1x1 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+      const req: ResponsesRequest = {
+        model: "deepseek-v4-pro",
+        input: [
+          {
+            type: "message",
+            role: "user",
+            content: [
+              { type: "input_text", text: "what does this say" },
+              { type: "input_image", image_url: `data:image/png;base64,${png1x1}` },
+            ],
+          },
+        ],
+      };
+      const chat = reqToChat(req, { imageDropDir: dropDir });
+      const msg = chat.messages[0];
+      expect(msg.role).toBe("user");
+      const content = typeof msg.content === "string" ? msg.content : "";
+      expect(content).toContain("1 image attachment omitted");
+      expect(content).toContain("mimoskill/scripts/ocr.py");
+      // Should NOT have the old "<path>" placeholder that prompts the agent
+      // to ask the user.
+      expect(content).not.toMatch(/`.*ocr\.py <path>`/);
+
+      // Extract the materialized path — should exist on disk and match
+      // the original bytes.
+      const pathMatch = content.match(/^\s+1\.\s+(.+)$/m);
+      expect(pathMatch).toBeTruthy();
+      const materializedPath = pathMatch![1];
+      expect(materializedPath).toContain("cache");
+      expect(materializedPath).toContain("images");
+      expect(materializedPath.endsWith(".png")).toBe(true);
+      expect(existsSync(materializedPath)).toBe(true);
+      expect(readFileSync(materializedPath)).toEqual(Buffer.from(png1x1, "base64"));
+    } finally {
+      rmSync(dropDir, { recursive: true, force: true });
+    }
+  });
+
+  it("non-vision model: http(s) image URLs are surfaced as-is in placeholder (no download)", () => {
+    const dropDir = mkdtempSync(join(tmpdir(), "mimo2codex-test-"));
+    try {
+      const req: ResponsesRequest = {
+        model: "mimo-v2.5-pro",
+        input: [
+          {
+            type: "message",
+            role: "user",
+            content: [
+              { type: "input_text", text: "describe" },
+              { type: "input_image", image_url: "https://example.com/photo.jpg" },
+            ],
+          },
+        ],
+      };
+      const chat = reqToChat(req, { imageDropDir: dropDir });
+      const content =
+        typeof chat.messages[0].content === "string" ? chat.messages[0].content : "";
+      expect(content).toContain("https://example.com/photo.jpg");
+    } finally {
+      rmSync(dropDir, { recursive: true, force: true });
+    }
+  });
+
+  it("non-vision model with no imageDropDir: falls back to tmpdir, still materializes", () => {
+    const png1x1 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    const req: ResponsesRequest = {
+      model: "deepseek-v4-pro",
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [
+            { type: "input_image", image_url: `data:image/png;base64,${png1x1}` },
+          ],
+        },
+      ],
+    };
+    const chat = reqToChat(req); // no opts
+    const content =
+      typeof chat.messages[0].content === "string" ? chat.messages[0].content : "";
+    expect(content).toContain("1 image attachment omitted");
+    // Should still produce a path in the fallback location.
+    const pathMatch = content.match(/^\s+1\.\s+(.+)$/m);
+    expect(pathMatch).toBeTruthy();
+    expect(existsSync(pathMatch![1])).toBe(true);
   });
 });
