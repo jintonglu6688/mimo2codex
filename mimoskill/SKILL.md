@@ -82,10 +82,11 @@ For non-trivial integrations, [references/models.md](references/models.md) and [
 
 ## OCR / image recognition (when the chat model can't see images)
 
-If the user wants to **read text from an image** or **describe / 识别 an image** but the current chat model is non-vision (`mimo-v2.5-pro`, `mimo-v2.5-pro[1m]`, `mimo-v2-flash`, `deepseek-*`, or any third-party text-only model), invoke `scripts/ocr.py`. Two engines, `--engine auto` (default) picks the right one:
+If the user wants to **read text from an image** or **describe / 识别 an image** but the current chat model is non-vision (`mimo-v2.5-pro`, `mimo-v2.5-pro[1m]`, `mimo-v2-flash`, `deepseek-*`, or any third-party text-only model), invoke `scripts/ocr.py`. Three engines, `--engine auto` (default) picks in this order — mimo if `MIMO_API_KEY` set, else tesseract if installed and mode=text, else pollinations:
 
-- **`mimo`** — needs `MIMO_API_KEY`, uses `mimo-v2.5` regardless of the chat model. Best quality.
-- **`pollinations`** — free public vision endpoint at `text.pollinations.ai`, **no key required**. Mirrors the same no-key fallback `generate_pet.py` uses. Rate-limited but always available — covers users who only have a DeepSeek key (or no key at all).
+- **`mimo`** — needs `MIMO_API_KEY`, uses `mimo-v2.5` regardless of the chat model. Best quality. All modes.
+- **`tesseract`** — **no key, no network**. Fully local OCR. Auto-used if installed and `--mode text`. Recommended for users behind GFW or offline. One-time install: `brew install tesseract tesseract-lang` / `sudo apt install tesseract-ocr tesseract-ocr-chi-sim` / Windows installer at github.com/UB-Mannheim/tesseract/wiki.
+- **`pollinations`** — free public vision endpoint at `text.pollinations.ai`, **no key required**. All modes. But may be unreachable from mainland China — if you see "connection failed (pollinations)", suggest tesseract as the offline alternative.
 
 The proxy silently drops image attachments on non-vision models (`src/translate/reqToChat.ts:48-72`) and leaves a `[N image attachment(s) omitted: …]` placeholder. **When you see that placeholder in the transcript, the right move is to run ocr.py and feed the text back into the conversation.** Don't ask the user to switch models.
 

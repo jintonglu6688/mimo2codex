@@ -78,24 +78,31 @@ For the mimo engine, the script handles MiMo's quirks transparently: `max_comple
 
 ### `scripts/ocr.py` — OCR / image recognition
 
-OCR fallback for when the chat model can't see images. **Two engines** (`--engine auto` picks):
+OCR fallback for when the chat model can't see images. **Three engines** (`--engine auto` picks):
 
-| Engine | Needs key | Quality | Notes |
-|---|---|---|---|
-| `mimo` | `MIMO_API_KEY` | best | Calls `mimo-v2.5` (the vision model) regardless of the chat model in use |
-| `pollinations` | **NO** | decent | Free public endpoint at `text.pollinations.ai`. Rate-limited but no signup |
+| Engine | Needs key | Needs network | Modes | Notes |
+|---|---|---|---|---|
+| `mimo` | `MIMO_API_KEY` | yes | all | Calls `mimo-v2.5` (the vision model) regardless of the chat model in use. Best quality. |
+| `tesseract` | **NO** | **NO** | text only | Fully local OCR. Recommended when pollinations is unreachable (e.g. mainland China). One-time install. |
+| `pollinations` | **NO** | yes | all | Free public endpoint at `text.pollinations.ai`. No signup, but may be slow / blocked in some regions. |
 
-Auto resolution: `mimo` if `MIMO_API_KEY` is set, else `pollinations`. So users with **only a DeepSeek key** (or no key at all) still get OCR with zero setup.
+Auto resolution order: `mimo` (if `MIMO_API_KEY`) → `tesseract` (if installed **and** `--mode text`) → `pollinations`. So users with **only a DeepSeek key** (or no key at all) still get OCR with zero setup; users behind GFW who install tesseract once never need to touch the network.
 
 ```bash
-# Zero-setup — uses pollinations fallback when MIMO_API_KEY is unset
+# Zero-setup — auto picks the best available engine
 python3 mimoskill/scripts/ocr.py path/to/image.png
+
+# Offline / behind GFW — install tesseract once, then it works without network
+#   macOS:   brew install tesseract tesseract-lang
+#   Ubuntu:  sudo apt install tesseract-ocr tesseract-ocr-chi-sim
+#   Windows: https://github.com/UB-Mannheim/tesseract/wiki
+python3 mimoskill/scripts/ocr.py --engine tesseract --lang Chinese scan.png
 
 # Best quality — set MiMo key
 export MIMO_API_KEY=sk-xxxx
 python3 mimoskill/scripts/ocr.py path/to/image.png   # auto -> mimo
 
-# Force the free engine even when you have a MiMo key (save quota)
+# Force pollinations even when you have a MiMo key (save quota)
 python3 mimoskill/scripts/ocr.py --engine pollinations form.png
 
 # Force MiMo — errors out if MIMO_API_KEY is not set (no silent fallback)

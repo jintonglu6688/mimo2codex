@@ -1,16 +1,22 @@
 # OCR / image recognition workflow
 
 `mimoskill/scripts/ocr.py` is the fallback path for reading or describing
-images when the surrounding chat model can't see them. Two engines:
+images when the surrounding chat model can't see them. Three engines:
 
-| Engine | Needs API key? | Quality | Notes |
-|---|---|---|---|
-| `mimo` | yes (`MIMO_API_KEY`) | best | Calls `mimo-v2.5` regardless of the chat model used elsewhere. |
-| `pollinations` | **no** | decent | Free public endpoint at `text.pollinations.ai`. Rate-limited but no signup. |
+| Engine | Needs API key | Needs network | Quality | Notes |
+|---|---|---|---|---|
+| `mimo` | yes (`MIMO_API_KEY`) | yes | best | Calls `mimo-v2.5` regardless of the chat model used elsewhere. All modes supported. |
+| `tesseract` | **no** | **no** | decent for clean print | Fully local. `--mode text` only. Recommended when network access to pollinations is unreliable (e.g. mainland China). Requires one-time install. |
+| `pollinations` | **no** | yes | decent | Free public endpoint at `text.pollinations.ai`. All modes supported, but may be slow / unreachable behind some firewalls. |
 
-`--engine auto` (default) picks `mimo` if `MIMO_API_KEY` is set, else falls
-back to `pollinations` so users with only a DeepSeek key (or no key at all)
-still get OCR.
+`--engine auto` (default) picks in this order:
+1. `mimo` if `MIMO_API_KEY` is set
+2. `tesseract` if installed on PATH **and** `--mode text`
+3. `pollinations` otherwise
+
+So users with only a DeepSeek key, or no key at all, still get OCR — and
+users behind GFW who have tesseract installed never need to touch the
+network.
 
 ## TL;DR
 
@@ -167,27 +173,66 @@ silently (one stderr line) rather than failing.
 
 ## When `MIMO_API_KEY` isn't set
 
-`--engine auto` (the default) silently falls back to `pollinations`:
+`--engine auto` (the default) chooses tesseract if it's installed and the
+mode is `text`, otherwise pollinations:
 
 ```
-[engine] auto -> pollinations (free, no key). Set MIMO_API_KEY for higher quality (mimo-v2.5).
+# With tesseract installed
+[engine] auto -> tesseract (local, no network). Set MIMO_API_KEY for higher quality (mimo-v2.5).
+[ocr] engine=tesseract mode=text lang=eng+chi_sim images=1
+<extracted text>
+
+# Without tesseract
+[engine] auto -> pollinations (free, no key).
+  Set MIMO_API_KEY for higher quality (mimo-v2.5), or install tesseract for offline OCR.
 [ocr] engine=pollinations mode=text model=openai images=1
 <extracted text>
 ```
 
 Exit code `3` is only raised when the user explicitly passes `--engine mimo`
-without a key (passing the flag is treated as an assertion that MiMo should
-be used; auto-falling-back would mask the misconfiguration).
+without a key, or `--engine tesseract` without it installed (passing a flag
+is treated as an assertion that engine should be used; auto-falling-back
+would mask the misconfiguration).
 
-If you'd rather use **fully-local OCR** with no network at all, install
-tesseract and shell to it directly — this skill won't auto-invoke it:
+## Tesseract specifics (offline / GFW-friendly path)
+
+Install once, never touch the network again:
 
 ```bash
 macOS:    brew install tesseract tesseract-lang
 Ubuntu:   sudo apt install tesseract-ocr tesseract-ocr-chi-sim
 Windows:  https://github.com/UB-Mannheim/tesseract/wiki
-tesseract <image> - -l eng+chi_sim
 ```
+
+The script auto-detects tesseract on `PATH` via `shutil.which("tesseract")`.
+Once installed, `python3 ocr.py <image>` (with `MIMO_API_KEY` unset) routes
+through tesseract automatically.
+
+**Language hints** — `--lang` is mapped to tesseract's `-l` codes:
+
+| `--lang` | tesseract `-l` |
+|---|---|
+| `Chinese` (default for Chinese) | `chi_sim+chi_tra` |
+| `zh` / `zh-hans` / `zh-cn` | `chi_sim` |
+| `zh-hant` / `zh-tw` | `chi_tra` |
+| `en` / `English` | `eng` |
+| `ja` / `Japanese` / `日本語` | `jpn` |
+| `ko` / `Korean` / `한국어` | `kor` |
+| `fr` / `de` / `es` / `ru` | `fra` / `deu` / `spa` / `rus` |
+| anything else | `eng+chi_sim` (sensible default for mixed CJK content) |
+| raw tesseract code (e.g. `fra+ita`) | passed through |
+
+If you need a language not pre-mapped, install the corresponding traineddata
+on your system (e.g. `tesseract-ocr-deu` on Ubuntu, `brew install tesseract-lang`
+on macOS) and pass `--lang` as the raw code.
+
+**Limitations**: tesseract is an OCR engine, not an LLM — it only extracts
+literal text. `--mode describe` / `structured` / `markdown` need a vision
+LLM (mimo or pollinations) and will error if you force tesseract.
+
+**Input forms**: all the usual ones work — local path, `http(s):` URL,
+`data:` URL, stdin. URLs are downloaded to a temp file before tesseract
+runs; data URLs are decoded; the temp file is cleaned up after.
 
 ## Pollinations specifics
 
@@ -220,7 +265,7 @@ tesseract <image> - -l eng+chi_sim
 | 0 | Success |
 | 1 | Upstream HTTP error (MiMo or Pollinations; error body printed to stderr) |
 | 2 | argv / usage error (no image, mutually exclusive flags, etc.) |
-| 3 | `--engine mimo` explicitly requested but `MIMO_API_KEY` not set |
+| 3 | `--engine mimo` requested without `MIMO_API_KEY`, or `--engine tesseract` requested but not installed |
 | 4 | Local image file not found / unreadable |
 
 ## Composing with `mimo_chat.py`

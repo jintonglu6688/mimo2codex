@@ -119,8 +119,11 @@ function partsToChatContent(
         `[${droppedCount} image attachment${plural} omitted because the active model can't ingest images.\n` +
         `The proxy materialized them to disk so you can OCR / describe without asking the user for a path:\n` +
         refList +
-        `\nTo extract text or describe, run (zero-key — free pollinations fallback when MIMO_API_KEY is unset):\n` +
+        `\nTo extract text or describe, run:\n` +
         `  python3 mimoskill/scripts/ocr.py <path-from-above>\n` +
+        `Engine auto-select (zero-key): mimo (if MIMO_API_KEY set) > tesseract (if installed, --mode text) > pollinations.\n` +
+        `If pollinations is unreachable (e.g. mainland China), install tesseract once for offline OCR:\n` +
+        `  brew install tesseract tesseract-lang  /  apt install tesseract-ocr tesseract-ocr-chi-sim\n` +
         `Or switch the chat model to mimo-v2.5 / mimo-v2-omni to see images directly.]`,
     });
   }

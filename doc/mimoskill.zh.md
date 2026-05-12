@@ -78,24 +78,31 @@ mimo 引擎自动踩好 MiMo 的坑：`max_completion_tokens`（不是 `max_toke
 
 ### `scripts/ocr.py` —— OCR / 识图
 
-非视觉 chat 模型场景下的兜底。**两个引擎**（`--engine auto` 自动选）：
+非视觉 chat 模型场景下的兜底。**三个引擎**（`--engine auto` 自动选）：
 
-| 引擎 | 需要 key | 质量 | 备注 |
-|---|---|---|---|
-| `mimo` | 需要 `MIMO_API_KEY` | 最好 | 内部调 `mimo-v2.5`（视觉模型），与外层 chat 模型无关 |
-| `pollinations` | **不需要** | 还行 | 免费公共端点 `text.pollinations.ai`。有 IP 限流，但无需注册 |
+| 引擎 | 需要 key | 需要网络 | 支持 mode | 备注 |
+|---|---|---|---|---|
+| `mimo` | 需要 `MIMO_API_KEY` | 需要 | 全部 | 内部调 `mimo-v2.5`（视觉模型），与外层 chat 模型无关。质量最好 |
+| `tesseract` | **不需要** | **不需要** | 仅 text | 纯本地 OCR。**国内 / GFW 环境推荐**——pollinations 不通时就靠它兜底。装一次永久可用 |
+| `pollinations` | **不需要** | 需要 | 全部 | 免费公共端点 `text.pollinations.ai`，无需注册。但国内访问可能慢 / 不通 |
 
-auto 选择：有 `MIMO_API_KEY` 用 mimo，否则 pollinations。所以**只配了 DeepSeek key**（或者啥都没配）的用户也能零配置用 OCR。
+auto 选择顺序：`mimo`（有 key）→ `tesseract`（已装 + `--mode text`）→ `pollinations`。所以**只配了 DeepSeek key**（或啥都没配）的用户也能零配置用 OCR；国内用户装一次 tesseract 之后 OCR 就完全离线了。
 
 ```bash
-# 零配置 —— 没设 MIMO_API_KEY 时自动走免费 pollinations
+# 零配置 —— auto 自动挑可用的引擎
 python3 mimoskill/scripts/ocr.py path/to/image.png
+
+# 国内 / 离线 —— 装一次 tesseract，永久离线可用
+#   macOS:   brew install tesseract tesseract-lang
+#   Ubuntu:  sudo apt install tesseract-ocr tesseract-ocr-chi-sim
+#   Windows: https://github.com/UB-Mannheim/tesseract/wiki
+python3 mimoskill/scripts/ocr.py --engine tesseract --lang Chinese scan.png
 
 # 最佳质量 —— 设 MiMo key
 export MIMO_API_KEY=sk-xxxx
 python3 mimoskill/scripts/ocr.py path/to/image.png   # auto -> mimo
 
-# 强制走免费引擎（即便你有 MiMo key，比如想省额度）
+# 强制走 pollinations（即便你有 MiMo key，比如想省额度）
 python3 mimoskill/scripts/ocr.py --engine pollinations form.png
 
 # 强制 MiMo —— 没设 key 直接报错（不静默降级）

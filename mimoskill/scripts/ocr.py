@@ -6,15 +6,23 @@ Use this when the surrounding chat model can't see images (mimo-v2.5-pro,
 mimo-v2.5-pro[1m], mimo-v2-flash, deepseek-*, or any text-only model).
 
 Engines (--engine):
-  auto          (default) — mimo if MIMO_API_KEY set, else pollinations
+  auto          (default) — mimo if MIMO_API_KEY set, else tesseract if
+                 installed and --mode=text, else pollinations
   mimo          — Xiaomi MiMo V2.5 vision. Highest quality. Needs MIMO_API_KEY
-  pollinations  — pollinations.ai free public vision endpoint. NO KEY REQUIRED
+  tesseract     — Local Tesseract OCR. NO KEY, NO NETWORK. Good for users
+                 behind firewalls (e.g. mainland China where pollinations.ai
+                 can be unreachable). Supports --mode text only.
+  pollinations  — pollinations.ai free public vision endpoint. No key but
+                 needs network reachable from the user (may be slow/unreliable
+                 in some regions).
 
 Modes (--mode):
   text       (default) verbatim OCR — raw text, preserves line breaks
-  describe   2-4 sentence description of the image
+  describe   2-4 sentence description of the image (mimo / pollinations only)
   structured single JSON object with text / language / regions / summary
+             (mimo / pollinations only)
   markdown   re-render the image as GitHub-flavored Markdown
+             (mimo / pollinations only)
 
 Image inputs (positional, 0+):
   /path/to/file.png          local file → base64 data URL
@@ -24,14 +32,19 @@ Image inputs (positional, 0+):
   (none, stdin not a TTY)    same as `-`
 
 Usage:
-    # Zero-setup: free fallback, works for DeepSeek-only / no-key users
+    # Zero-setup
     python3 ocr.py path/to/image.png
     python3 ocr.py --mode describe https://example.com/x.png
+
+    # Behind GFW / offline — install tesseract once, never need network again
+    #   macOS:   brew install tesseract tesseract-lang
+    #   Ubuntu:  sudo apt install tesseract-ocr tesseract-ocr-chi-sim
+    #   Windows: https://github.com/UB-Mannheim/tesseract/wiki
+    python3 ocr.py --engine tesseract --lang Chinese scan.png
 
     # Best quality (needs MiMo key)
     export MIMO_API_KEY=sk-xxxx
     python3 ocr.py --mode structured a.png b.jpg
-    cat scan.png | python3 ocr.py --mode markdown
 
 Only depends on the standard library — no `openai` SDK install needed.
 """
@@ -42,7 +55,10 @@ import base64
 import json
 import mimetypes
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -198,6 +214,139 @@ def build_messages(
     return messages
 
 
+# --- Tesseract (local, offline) ---------------------------------------------
+
+# Lightweight mapping from human/--lang hints to tesseract trained-data codes.
+# Tesseract supports compound languages via "+": "eng+chi_sim+chi_tra".
+_TESSERACT_LANG_MAP: dict[str, str] = {
+    "chinese": "chi_sim+chi_tra",
+    "zh": "chi_sim",
+    "zh-hans": "chi_sim",
+    "zh-cn": "chi_sim",
+    "zh-hant": "chi_tra",
+    "zh-tw": "chi_tra",
+    "english": "eng",
+    "en": "eng",
+    "japanese": "jpn",
+    "ja": "jpn",
+    "日本語": "jpn",
+    "korean": "kor",
+    "ko": "kor",
+    "한국어": "kor",
+    "french": "fra",
+    "fr": "fra",
+    "german": "deu",
+    "de": "deu",
+    "spanish": "spa",
+    "es": "spa",
+    "russian": "rus",
+    "ru": "rus",
+}
+
+
+def tesseract_available() -> bool:
+    return shutil.which("tesseract") is not None
+
+
+def map_lang_to_tesseract(lang: str | None) -> str:
+    """Resolve --lang hint to a tesseract -l string. Default: eng+chi_sim."""
+    if not lang:
+        return "eng+chi_sim"
+    key = lang.strip().lower()
+    if key in _TESSERACT_LANG_MAP:
+        return _TESSERACT_LANG_MAP[key]
+    # If the user passed a raw tesseract code (e.g. "fra+ita") we trust it.
+    if all(part.isalnum() or part == "_" for part in key.replace("+", "_")):
+        return lang
+    return "eng+chi_sim"
+
+
+def resolve_to_local_file(image_arg: str) -> tuple[Path, bool]:
+    """Resolve a positional IMAGE arg to a path tesseract can read.
+    Returns (path, is_temp). Caller should delete the file if is_temp."""
+    if image_arg == "-":
+        if sys.stdin.isatty():
+            sys.stderr.write("error: `-` requested but stdin is a TTY\n")
+            sys.exit(2)
+        data = sys.stdin.buffer.read()
+        return _write_temp_image(data, hint_name=None)
+    if image_arg.startswith(("http://", "https://")):
+        try:
+            with urllib.request.urlopen(image_arg, timeout=60) as resp:
+                data = resp.read()
+        except (urllib.error.URLError, urllib.error.HTTPError) as e:
+            sys.stderr.write(f"error: failed to fetch {image_arg}: {e}\n")
+            sys.exit(1)
+        return _write_temp_image(data, hint_name=image_arg.rsplit("/", 1)[-1])
+    if image_arg.startswith("data:"):
+        # data:image/png;base64,XXXX
+        try:
+            header, b64 = image_arg.split(",", 1)
+            data = base64.b64decode(b64)
+        except (ValueError, base64.binascii.Error) as e:
+            sys.stderr.write(f"error: malformed data URL: {e}\n")
+            sys.exit(2)
+        return _write_temp_image(data, hint_name=None)
+    path = Path(image_arg)
+    if not path.exists():
+        sys.stderr.write(f"error: image not found: {image_arg}\n")
+        sys.exit(4)
+    return path, False
+
+
+def _write_temp_image(data: bytes, hint_name: str | None) -> tuple[Path, bool]:
+    mime = sniff_mime(data, hint_name)
+    ext = mime.split("/")[1].split("+")[0] if "/" in mime else "png"
+    fd, name = tempfile.mkstemp(suffix=f".{ext}", prefix="mimoskill-ocr-")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+    except OSError as e:
+        sys.stderr.write(f"error: cannot write temp image: {e}\n")
+        sys.exit(1)
+    return Path(name), True
+
+
+def run_tesseract(
+    *, image_args: list[str], lang_arg: str, extra_prompt: str | None
+) -> str:
+    """Run tesseract over one or more images, return concatenated text."""
+    if extra_prompt:
+        sys.stderr.write(
+            "note: --prompt is ignored on tesseract engine (no LLM in the loop).\n"
+        )
+    chunks: list[str] = []
+    for arg in image_args:
+        path, is_temp = resolve_to_local_file(arg)
+        try:
+            r = subprocess.run(
+                ["tesseract", str(path), "-", "-l", lang_arg],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except FileNotFoundError:
+            sys.stderr.write(
+                "error: tesseract not found on PATH. Install:\n"
+                "  macOS:   brew install tesseract tesseract-lang\n"
+                "  Ubuntu:  sudo apt install tesseract-ocr tesseract-ocr-chi-sim\n"
+                "  Windows: https://github.com/UB-Mannheim/tesseract/wiki\n"
+            )
+            sys.exit(1)
+        finally:
+            if is_temp:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+        if r.returncode != 0:
+            sys.stderr.write(f"tesseract failed for {arg}: {r.stderr.strip()}\n")
+            sys.exit(1)
+        chunks.append(r.stdout.rstrip())
+    return "\n\n".join(c for c in chunks if c)
+
+
 # --- HTTP -------------------------------------------------------------------
 
 POLLINATIONS_URL = "https://text.pollinations.ai/openai"
@@ -226,6 +375,20 @@ def post(url: str, body: dict[str, Any], api_key: str | None, stream: bool, *, e
         sys.exit(1)
     except urllib.error.URLError as e:
         sys.stderr.write(f"connection failed ({engine}): {e}\n")
+        if engine == "pollinations":
+            # pollinations.ai is often slow / unreachable from mainland China.
+            # Point at the offline & domestic-friendly alternatives.
+            sys.stderr.write(
+                "  pollinations.ai can be unreachable from mainland China.\n"
+                "  Alternatives:\n"
+                "    1. Install tesseract for offline OCR (text mode only):\n"
+                "         macOS:   brew install tesseract tesseract-lang\n"
+                "         Ubuntu:  sudo apt install tesseract-ocr tesseract-ocr-chi-sim\n"
+                "         Windows: https://github.com/UB-Mannheim/tesseract/wiki\n"
+                "       then re-run: python3 ocr.py --engine tesseract --lang Chinese <image>\n"
+                "    2. Use MiMo: export MIMO_API_KEY=sk-xxxx ; python3 ocr.py <image>\n"
+                "    3. Use a network proxy (set HTTPS_PROXY env var) and retry.\n"
+            )
         sys.exit(1)
 
 
@@ -303,10 +466,12 @@ def main() -> None:
     p.add_argument("--temperature", type=float, default=0.2)
     p.add_argument(
         "--engine",
-        choices=["auto", "mimo", "pollinations"],
+        choices=["auto", "mimo", "tesseract", "pollinations"],
         default=os.environ.get("MIMO_OCR_ENGINE", "auto"),
-        help="OCR backend. auto = mimo if MIMO_API_KEY set, else pollinations "
-        "(free, no key required). default: %(default)s",
+        help="OCR backend. auto = mimo (if MIMO_API_KEY) > tesseract (if "
+        "installed and --mode=text) > pollinations. tesseract is fully local "
+        "(no key, no network) — recommended when pollinations is unreachable "
+        "(e.g. behind GFW). default: %(default)s",
     )
     p.add_argument(
         "--base-url",
@@ -337,18 +502,50 @@ def main() -> None:
             sys.stderr.write(
                 "error: --engine mimo requires MIMO_API_KEY.\n"
                 "  set one at https://platform.xiaomimimo.com/#/console/api-keys\n"
-                "  OR drop the flag to fall back to pollinations (free, no key required):\n"
-                "      python3 ocr.py <image>\n"
+                "  OR drop the flag to use auto fallback (tesseract / pollinations).\n"
             )
             sys.exit(3)
+    elif args.engine == "tesseract":
+        engine = "tesseract"
+        if not tesseract_available():
+            sys.stderr.write(
+                "error: --engine tesseract requested but tesseract is not on PATH.\n"
+                "  macOS:   brew install tesseract tesseract-lang\n"
+                "  Ubuntu:  sudo apt install tesseract-ocr tesseract-ocr-chi-sim\n"
+                "  Windows: https://github.com/UB-Mannheim/tesseract/wiki\n"
+            )
+            sys.exit(3)
+        if args.mode != "text":
+            sys.stderr.write(
+                f"error: --engine tesseract only supports --mode text "
+                f"(you passed --mode {args.mode}). tesseract is an OCR engine, "
+                f"not an LLM — `describe` / `structured` / `markdown` need a "
+                f"vision LLM (mimo or pollinations).\n"
+            )
+            sys.exit(2)
     elif args.engine == "pollinations":
         engine = "pollinations"
     else:  # auto
-        engine = "mimo" if api_key else "pollinations"
-        if engine == "pollinations":
+        if api_key:
+            engine = "mimo"
+        elif args.mode == "text" and tesseract_available():
+            engine = "tesseract"
             sys.stderr.write(
-                "[engine] auto -> pollinations (free, no key). "
+                "[engine] auto -> tesseract (local, no network). "
                 "Set MIMO_API_KEY for higher quality (mimo-v2.5).\n"
+            )
+        else:
+            engine = "pollinations"
+            hint = ""
+            if args.mode != "text" and tesseract_available():
+                hint = (
+                    " (tesseract is installed but only handles --mode text;"
+                    " using pollinations for this mode)"
+                )
+            sys.stderr.write(
+                f"[engine] auto -> pollinations (free, no key){hint}.\n"
+                "  Set MIMO_API_KEY for higher quality (mimo-v2.5), "
+                "or install tesseract for offline OCR.\n"
             )
 
     # Resolve images: explicit args, else stdin if not a TTY.
@@ -361,6 +558,30 @@ def main() -> None:
             "on stdin. See `ocr.py --help`.\n"
         )
         sys.exit(2)
+
+    # Tesseract branch — fully local, no LLM call, no data-URL conversion.
+    if engine == "tesseract":
+        lang_arg = map_lang_to_tesseract(args.lang)
+        sys.stderr.write(
+            f"[ocr] engine=tesseract mode=text lang={lang_arg} images={len(raw_args)}\n"
+        )
+        text = run_tesseract(
+            image_args=raw_args, lang_arg=lang_arg, extra_prompt=args.prompt
+        )
+        if args.json:
+            envelope = {
+                "mode": "text",
+                "engine": "tesseract",
+                "model": f"tesseract:{lang_arg}",
+                "images": len(raw_args),
+                "content": text,
+                "reasoning_content": "",
+                "usage": {},
+            }
+            print(json.dumps(envelope, ensure_ascii=False, indent=2))
+        else:
+            print(text)
+        return
 
     image_urls = [resolve_image_arg(a) for a in raw_args]
 
