@@ -204,6 +204,16 @@ export interface CodexBackupPair {
   ts: number;
   authBackup: string | null;
   tomlBackup: string | null;
+  // True when this backup captured an external auth.json (real OpenAI key
+  // or another tool's writes). Preserved backups are exempt from automatic
+  // pruning and require force=true to delete.
+  preserved: boolean;
+  // Sniffed from the backed-up config.toml — surfaces "this snapshot used
+  // provider=X / model=Y" so the user can tell different snapshots apart.
+  model: string | null;
+  provider: string | null;
+  // Owner inferred from the backed-up auth.json content.
+  authBackupOwner: "mimo2codex" | "external" | "missing";
 }
 
 export interface CodexState {
@@ -230,6 +240,7 @@ export interface CodexApplyResponse {
   authBackup: string | null;
   tomlBackup: string | null;
   authJsonOwnerBefore: "mimo2codex" | "external" | "missing";
+  preserved: boolean;
   restartRequired: boolean;
 }
 
@@ -289,6 +300,11 @@ export const api = {
     request<CodexApplyResponse>("POST", "/codex-apply", body),
   codexRestore: (ts: number) =>
     request<{ ok: boolean; restartRequired: boolean }>("POST", "/codex-restore", { ts }),
+  deleteCodexBackup: (ts: number, force = false) =>
+    request<{ ok: boolean; removed: number }>(
+      "DELETE",
+      `/codex-backups/${ts}${force ? "?force=1" : ""}`
+    ),
   getActiveOverride: () =>
     request<{ override: ActiveOverride | null }>("GET", "/active-override"),
   setActiveOverride: (body: { providerId: string; modelId: string }) =>

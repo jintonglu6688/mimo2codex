@@ -39,7 +39,7 @@ import {
   writeSpecsToFile,
 } from "../providers/genericLoader.js";
 import type { GenericProviderSpec } from "../providers/generic.js";
-import { applyCodex, readCodexState, restoreCodex } from "../codex/state.js";
+import { applyCodex, deleteBackupPair, readCodexState, restoreCodex } from "../codex/state.js";
 import {
   clearActiveOverride,
   getActiveOverride,
@@ -575,6 +575,30 @@ async function handleApi(ctx: RouteContext): Promise<void> {
     } catch (err) {
       log.error("codex-apply failed", { error: (err as Error).message });
       return sendError(res, 500, "apply_failed", (err as Error).message);
+    }
+  }
+
+  // codex-backups: manual delete. Used by the UI's trash button on each
+  // backup row. Preserved pairs (those that captured an external auth.json)
+  // require `?force=1` so a careless click can't lose the only path back
+  // to the user's original Codex config.
+  const backupTsMatch = pathname.match(/^\/admin\/api\/codex-backups\/(\d+)$/);
+  if (backupTsMatch && req.method === "DELETE") {
+    const ts = Number(backupTsMatch[1]);
+    const force = query.get("force") === "1" || query.get("force") === "true";
+    try {
+      const removed = deleteBackupPair(ts, { force });
+      log.info(`codex backup deleted: ts=${ts} force=${force} files=${removed}`);
+      return sendJson(res, 200, { ok: true, removed });
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg.includes("no backup pair")) {
+        return sendError(res, 404, "not_found", msg);
+      }
+      if (msg.includes("preserved")) {
+        return sendError(res, 400, "preserved_backup", msg);
+      }
+      return sendError(res, 500, "delete_failed", msg);
     }
   }
 

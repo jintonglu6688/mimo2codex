@@ -316,6 +316,84 @@ describe("admin REST — Codex 启用 routes", () => {
     expect((r.json as { error: { code: string } }).error.code).toBe("provider_has_no_key");
   });
 
+  it("DELETE /admin/api/codex-backups/:ts removes a regular pair without force", async () => {
+    // Apply once over an existing auth.json owned by us → regular (non-preserved) backup.
+    const { writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const codexDir = join(dataDir, ".codex");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(codexDir, { recursive: true });
+    writeFileSync(
+      join(codexDir, "auth.json"),
+      JSON.stringify({ OPENAI_API_KEY: "mimo2codex-local" })
+    );
+    writeFileSync(join(codexDir, "config.toml"), "model = \"mimo-v2.5-pro\"\n");
+    const apply = await call("POST", "/admin/api/codex-apply", {
+      providerId: "mimo",
+      modelId: "mimo-v2.5-pro",
+    });
+    const ts = (apply.json as { backupTs: number }).backupTs;
+    const del = await call("DELETE", `/admin/api/codex-backups/${ts}`);
+    expect(del.status).toBe(200);
+    expect((del.json as { removed: number }).removed).toBe(2);
+    // State now has no backup pair with that ts.
+    const state = await call("GET", "/admin/api/codex-state");
+    expect(
+      (state.json as { backups: Array<{ ts: number }> }).backups.find((b) => b.ts === ts)
+    ).toBeUndefined();
+  });
+
+  it("DELETE /admin/api/codex-backups/:ts refuses preserved pair without ?force=1", async () => {
+    // Apply over external auth.json → preserved backup.
+    const { writeFileSync, mkdirSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const codexDir = join(dataDir, ".codex");
+    mkdirSync(codexDir, { recursive: true });
+    writeFileSync(
+      join(codexDir, "auth.json"),
+      JSON.stringify({ OPENAI_API_KEY: "sk-real-openai" })
+    );
+    writeFileSync(join(codexDir, "config.toml"), "x");
+    const apply = await call("POST", "/admin/api/codex-apply", {
+      providerId: "mimo",
+      modelId: "mimo-v2.5-pro",
+    });
+    const ts = (apply.json as { backupTs: number; preserved: boolean }).backupTs;
+
+    const refuse = await call("DELETE", `/admin/api/codex-backups/${ts}`);
+    expect(refuse.status).toBe(400);
+    expect((refuse.json as { error: { code: string } }).error.code).toBe("preserved_backup");
+
+    const forced = await call("DELETE", `/admin/api/codex-backups/${ts}?force=1`);
+    expect(forced.status).toBe(200);
+  });
+
+  it("GET /admin/api/codex-state surfaces preserved + sniffed model/provider in backups", async () => {
+    const { writeFileSync, mkdirSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const codexDir = join(dataDir, ".codex");
+    mkdirSync(codexDir, { recursive: true });
+    writeFileSync(
+      join(codexDir, "auth.json"),
+      JSON.stringify({ OPENAI_API_KEY: "sk-real-openai" })
+    );
+    writeFileSync(
+      join(codexDir, "config.toml"),
+      'model = "gpt-5"\nmodel_provider = "openai"\n'
+    );
+    await call("POST", "/admin/api/codex-apply", {
+      providerId: "mimo",
+      modelId: "mimo-v2.5-pro",
+    });
+    const state = await call("GET", "/admin/api/codex-state");
+    const backups = (state.json as { backups: Array<{ preserved: boolean; model: string | null; provider: string | null; authBackupOwner: string }> }).backups;
+    expect(backups.length).toBe(1);
+    expect(backups[0].preserved).toBe(true);
+    expect(backups[0].model).toBe("gpt-5");
+    expect(backups[0].provider).toBe("openai");
+    expect(backups[0].authBackupOwner).toBe("external");
+  });
+
   it("GET /admin/api/codex-targets returns built-in models with current-override flags", async () => {
     await call("PUT", "/admin/api/active-override", {
       providerId: "mimo",

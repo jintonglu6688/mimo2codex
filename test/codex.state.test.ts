@@ -77,18 +77,24 @@ describe("codex/state — applyCodex", () => {
     expect(backedUpAuth.OPENAI_API_KEY).toBe("sk-real-openai");
   });
 
-  it("prunes to BACKUP_KEEP=10 after 11 successive applies", async () => {
+  it("prunes regular (non-preserved) backups to BACKUP_KEEP=10 after 11 successive applies", async () => {
     const { state, snippets, paths } = await loadModules();
-    // Seed an existing pair so the first apply has something to back up.
+    // Seed an auth.json that looks like one of OURS so the first apply
+    // produces a REGULAR (non-preserved) backup. Preserved backups are
+    // tested separately — here we want to assert the prune behavior on
+    // ordinary snapshots.
     mkdirSync(paths.codexDir(), { recursive: true });
-    writeFileSync(path.join(paths.codexDir(), "auth.json"), "{}");
+    writeFileSync(
+      path.join(paths.codexDir(), "auth.json"),
+      JSON.stringify({ OPENAI_API_KEY: "mimo2codex-local" })
+    );
     writeFileSync(path.join(paths.codexDir(), "config.toml"), "x");
     for (let i = 0; i < 11; i++) {
       state.applyCodex(snippets.resolveSnippetTarget("mimo"), host);
-      // Force Date.now() apart by 2ms so backups don't collide.
       await new Promise((r) => setTimeout(r, 2));
     }
     const pairs = state.listBackupPairs();
+    expect(pairs.every((p) => !p.preserved)).toBe(true);
     expect(pairs.length).toBeLessThanOrEqual(10);
   });
 });
@@ -118,15 +124,125 @@ describe("codex/state — restoreCodex", () => {
     expect(() => state.restoreCodex(99999)).toThrow(/no backup pair/);
   });
 
-  it("rejects incomplete pair (only auth backup exists)", async () => {
+  it("half-pair restore: missing toml backup means current toml gets DELETED (return-to-prior semantics)", async () => {
     const { state, paths } = await loadModules();
     mkdirSync(paths.codexDir(), { recursive: true });
-    // Hand-craft a half-pair: backup only the auth.json side.
+    // Pre-state: only auth.json exists (user had real OpenAI, never customized config.toml).
+    const originalAuth = JSON.stringify({ OPENAI_API_KEY: "sk-real" }, null, 2);
+    writeFileSync(path.join(paths.codexDir(), "auth.json"), originalAuth);
+
+    const { resolveSnippetTarget } = await import("../src/setup/snippets.js");
+    const apply = state.applyCodex(resolveSnippetTarget("mimo"), host);
+    expect(apply.authBackup).not.toBeNull();
+    expect(apply.tomlBackup).toBeNull(); // toml didn't exist pre-apply
+    // After apply, both files exist (we wrote them).
+    expect(existsSync(path.join(paths.codexDir(), "auth.json"))).toBe(true);
+    expect(existsSync(path.join(paths.codexDir(), "config.toml"))).toBe(true);
+
+    state.restoreCodex(apply.backupTs);
+    // auth.json restored to original.
+    expect(readFileSync(path.join(paths.codexDir(), "auth.json"), "utf-8")).toBe(originalAuth);
+    // config.toml didn't exist before → it must NOT exist after restore.
+    expect(existsSync(path.join(paths.codexDir(), "config.toml"))).toBe(false);
+  });
+});
+
+describe("codex/state — preserve on external overwrite", () => {
+  it("first apply on external auth.json produces a preserved backup; subsequent applies are regular", async () => {
+    const { state, snippets, paths } = await loadModules();
+    mkdirSync(paths.codexDir(), { recursive: true });
     writeFileSync(
-      path.join(paths.codexDir(), "auth.json.bak.4242.999"),
-      JSON.stringify({ OPENAI_API_KEY: "sk-half" })
+      path.join(paths.codexDir(), "auth.json"),
+      JSON.stringify({ OPENAI_API_KEY: "sk-real-openai" })
     );
-    expect(() => state.restoreCodex(4242)).toThrow(/incomplete/);
+    writeFileSync(path.join(paths.codexDir(), "config.toml"), "model = \"gpt-5\"\n");
+
+    const a1 = state.applyCodex(snippets.resolveSnippetTarget("mimo"), host);
+    expect(a1.preserved).toBe(true);
+    expect(a1.authBackup).toMatch(/\.preserve$/);
+    expect(a1.tomlBackup).toMatch(/\.preserve$/);
+
+    await new Promise((r) => setTimeout(r, 2));
+    const a2 = state.applyCodex(snippets.resolveSnippetTarget("ds"), host);
+    expect(a2.preserved).toBe(false);
+    expect(a2.authBackup).not.toMatch(/\.preserve$/);
+
+    const pairs = state.listBackupPairs();
+    expect(pairs.find((p) => p.ts === a1.backupTs)?.preserved).toBe(true);
+    expect(pairs.find((p) => p.ts === a2.backupTs)?.preserved).toBe(false);
+  });
+
+  it("preserved backup survives 15 subsequent applies (default keep=10)", async () => {
+    const { state, snippets, paths } = await loadModules();
+    mkdirSync(paths.codexDir(), { recursive: true });
+    writeFileSync(
+      path.join(paths.codexDir(), "auth.json"),
+      JSON.stringify({ OPENAI_API_KEY: "sk-real-openai" })
+    );
+    writeFileSync(path.join(paths.codexDir(), "config.toml"), "model = \"gpt-5\"\n");
+
+    const first = state.applyCodex(snippets.resolveSnippetTarget("mimo"), host);
+    expect(first.preserved).toBe(true);
+    for (let i = 0; i < 15; i++) {
+      state.applyCodex(snippets.resolveSnippetTarget("mimo"), host);
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    const pairs = state.listBackupPairs();
+    // The preserved one is still there.
+    const preserved = pairs.find((p) => p.ts === first.backupTs);
+    expect(preserved).toBeDefined();
+    expect(preserved!.preserved).toBe(true);
+    // The total cap of unpreserved is 10 (auth + toml each capped to 10, paired).
+    const unpreservedCount = pairs.filter((p) => !p.preserved).length;
+    expect(unpreservedCount).toBeLessThanOrEqual(10);
+  });
+
+  it("listBackupPairs surfaces sniffed model/provider from the toml backup", async () => {
+    const { state, snippets, paths } = await loadModules();
+    mkdirSync(paths.codexDir(), { recursive: true });
+    writeFileSync(
+      path.join(paths.codexDir(), "auth.json"),
+      JSON.stringify({ OPENAI_API_KEY: "sk-real" })
+    );
+    writeFileSync(
+      path.join(paths.codexDir(), "config.toml"),
+      'model = "gpt-5"\nmodel_provider = "openai"\n'
+    );
+    state.applyCodex(snippets.resolveSnippetTarget("mimo"), host);
+    const pairs = state.listBackupPairs();
+    expect(pairs[0].model).toBe("gpt-5");
+    expect(pairs[0].provider).toBe("openai");
+    expect(pairs[0].authBackupOwner).toBe("external");
+  });
+});
+
+describe("codex/state — deleteBackupPair", () => {
+  it("removes a regular backup pair (both halves) without force", async () => {
+    const { state, snippets, paths } = await loadModules();
+    mkdirSync(paths.codexDir(), { recursive: true });
+    writeFileSync(path.join(paths.codexDir(), "auth.json"), '{"OPENAI_API_KEY":"mimo2codex-local"}');
+    writeFileSync(path.join(paths.codexDir(), "config.toml"), "x");
+    const a = state.applyCodex(snippets.resolveSnippetTarget("mimo"), host);
+    expect(state.listBackupPairs().some((p) => p.ts === a.backupTs)).toBe(true);
+    const removed = state.deleteBackupPair(a.backupTs);
+    expect(removed).toBe(2);
+    expect(state.listBackupPairs().some((p) => p.ts === a.backupTs)).toBe(false);
+  });
+
+  it("refuses to delete preserved pair without force=true", async () => {
+    const { state, snippets, paths } = await loadModules();
+    mkdirSync(paths.codexDir(), { recursive: true });
+    writeFileSync(path.join(paths.codexDir(), "auth.json"), '{"OPENAI_API_KEY":"sk-real"}');
+    writeFileSync(path.join(paths.codexDir(), "config.toml"), "x");
+    const a = state.applyCodex(snippets.resolveSnippetTarget("mimo"), host);
+    expect(() => state.deleteBackupPair(a.backupTs)).toThrow(/preserved/);
+    // With force=true it succeeds.
+    expect(state.deleteBackupPair(a.backupTs, { force: true })).toBe(2);
+  });
+
+  it("throws on unknown ts", async () => {
+    const { state } = await loadModules();
+    expect(() => state.deleteBackupPair(99999)).toThrow(/no backup pair/);
   });
 });
 

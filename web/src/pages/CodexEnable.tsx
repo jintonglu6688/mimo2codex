@@ -6,7 +6,10 @@ import {
   type CodexTargetsResponse,
 } from "../api/client";
 
-type Busy = null | { kind: "apply" | "override" | "restore" | "clear"; key: string };
+type Busy = null | {
+  kind: "apply" | "override" | "restore" | "clear" | "delete-backup";
+  key: string;
+};
 
 export function CodexEnable() {
   const [state, setState] = useState<CodexState | null>(null);
@@ -42,12 +45,14 @@ export function CodexEnable() {
     setSuccess(null);
     try {
       const resp = await api.codexApply({ providerId: t.providerId, modelId: t.modelId });
-      const backupNote =
-        resp.authBackup || resp.tomlBackup
-          ? `已备份原文件（ts=${resp.backupTs}）。`
-          : "";
+      let note = "";
+      if (resp.preserved) {
+        note = `已备份你原来的 Codex 配置（ts=${resp.backupTs}，🔒 永久保留，不会因后续切换被清理）。`;
+      } else if (resp.authBackup || resp.tomlBackup) {
+        note = `已备份原文件（ts=${resp.backupTs}）。`;
+      }
       setSuccess(
-        `已写入 ${t.providerDisplayName} / ${t.modelId}。${backupNote}请完全退出并重启 Codex 让新配置生效。`
+        `已写入 ${t.providerDisplayName} / ${t.modelId}。${note}请完全退出并重启 Codex 让新配置生效。`
       );
       await load();
     } catch (err) {
@@ -98,14 +103,43 @@ export function CodexEnable() {
     }
   }
 
-  async function doRestore(ts: number) {
-    if (!confirm(`恢复到备份 ts=${ts}？当前 auth.json + config.toml 不会再次备份。`)) return;
-    setBusy({ kind: "restore", key: String(ts) });
+  async function doRestore(b: { ts: number; authBackup: string | null; tomlBackup: string | null }) {
+    // Explain the symmetric semantics: if one half is missing, that file
+    // didn't exist before this ts's apply — we'll delete the current copy
+    // so the disk returns to its real prior state.
+    const missing: string[] = [];
+    if (!b.authBackup) missing.push("auth.json（当时不存在 → 恢复时会删除当前的 auth.json）");
+    if (!b.tomlBackup) missing.push("config.toml（当时不存在 → 恢复时会删除当前的 config.toml）");
+    const detail =
+      missing.length > 0
+        ? `\n注意：此备份只有一半。${missing.join("，")}。`
+        : "";
+    if (!confirm(`恢复到备份 ts=${b.ts}？当前 auth.json + config.toml 不会再次备份。${detail}`)) return;
+    setBusy({ kind: "restore", key: String(b.ts) });
     setError(null);
     setSuccess(null);
     try {
-      await api.codexRestore(ts);
-      setSuccess(`已从备份 ts=${ts} 恢复 auth.json + config.toml。请重启 Codex。`);
+      await api.codexRestore(b.ts);
+      setSuccess(`已从备份 ts=${b.ts} 恢复。请重启 Codex 让旧配置生效。`);
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function doDeleteBackup(b: { ts: number; preserved: boolean }) {
+    const warn = b.preserved
+      ? `这是「🔒 原始 Codex 配置」备份 — 删除后将无法再一键恢复回你最初的真 Codex 配置。\n\n确定继续？`
+      : `删除备份 ts=${b.ts}？此操作不可逆。`;
+    if (!confirm(warn)) return;
+    setBusy({ kind: "delete-backup", key: String(b.ts) });
+    setError(null);
+    setSuccess(null);
+    try {
+      await api.deleteCodexBackup(b.ts, b.preserved);
+      setSuccess(`已删除备份 ts=${b.ts}。`);
       await load();
     } catch (err) {
       setError((err as Error).message);
@@ -195,7 +229,14 @@ export function CodexEnable() {
 
       {state && <RuntimeOverrideCard state={state} busy={busy} onClear={doClearOverride} />}
 
-      {state && <BackupCard state={state} busy={busy} onRestore={doRestore} />}
+      {state && (
+        <BackupCard
+          state={state}
+          busy={busy}
+          onRestore={doRestore}
+          onDelete={doDeleteBackup}
+        />
+      )}
 
       {pendingApply && (
         <ConfirmModal
@@ -442,14 +483,22 @@ function BackupCard({
   state,
   busy,
   onRestore,
+  onDelete,
 }: {
   state: CodexState;
   busy: Busy;
-  onRestore: (ts: number) => Promise<void>;
+  onRestore: (b: CodexState["backups"][number]) => Promise<void>;
+  onDelete: (b: { ts: number; preserved: boolean }) => Promise<void>;
 }) {
   return (
     <>
       <h3>备份与恢复</h3>
+      <p style={{ color: "var(--muted)", fontSize: 12, marginTop: -6, marginBottom: 10 }}>
+        每次「写入文件并启用」会自动备份当时的 auth.json + config.toml。
+        默认保留最近 10 份；
+        <strong>🔒 标记的备份（首次覆盖你真 Codex 配置时产生）永久保留</strong>，
+        不会随后续切换被清理。
+      </p>
       {state.backups.length === 0 ? (
         <div className="empty">尚无备份。第一次「写入文件并启用」会自动产生备份。</div>
       ) : (
@@ -458,6 +507,8 @@ function BackupCard({
             <tr>
               <th>时间戳</th>
               <th>本地时间</th>
+              <th>类型</th>
+              <th>当时的 provider / model</th>
               <th>auth.json</th>
               <th>config.toml</th>
               <th style={{ textAlign: "right" }}>操作</th>
@@ -465,12 +516,33 @@ function BackupCard({
           </thead>
           <tbody>
             {state.backups.map((b) => {
-              const complete = !!b.authBackup && !!b.tomlBackup;
-              const busyHere = busy?.kind === "restore" && busy.key === String(b.ts);
+              const restoreBusy = busy?.kind === "restore" && busy.key === String(b.ts);
+              const deleteBusy = busy?.kind === "delete-backup" && busy.key === String(b.ts);
+              const typeBadge = b.preserved ? (
+                <span className="tag ok" title="首次覆盖外部 auth.json 时产生，永久保留">
+                  🔒 原始 Codex 配置
+                </span>
+              ) : b.authBackupOwner === "mimo2codex" ? (
+                <span className="tag muted">mimo2codex 快照</span>
+              ) : (
+                <span className="tag">快照</span>
+              );
               return (
                 <tr key={b.ts}>
-                  <td className="mono">{b.ts}</td>
+                  <td className="mono" style={{ fontSize: 11 }}>
+                    {b.ts}
+                  </td>
                   <td>{new Date(b.ts).toLocaleString()}</td>
+                  <td>{typeBadge}</td>
+                  <td>
+                    {b.provider || b.model ? (
+                      <span className="mono" style={{ fontSize: 12 }}>
+                        {b.provider ?? "?"} / {b.model ?? "?"}
+                      </span>
+                    ) : (
+                      <span className="tag muted">未记录</span>
+                    )}
+                  </td>
                   <td>
                     {b.authBackup ? (
                       <span className="tag ok">有</span>
@@ -485,14 +557,21 @@ function BackupCard({
                       <span className="tag muted">无</span>
                     )}
                   </td>
-                  <td style={{ textAlign: "right" }}>
+                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     <button
                       className="secondary"
-                      onClick={() => void onRestore(b.ts)}
-                      disabled={!complete || !!busy}
-                      title={complete ? "" : "成对备份不完整，无法恢复"}
+                      onClick={() => void onRestore(b)}
+                      disabled={!!busy}
                     >
-                      {busyHere ? "恢复中…" : "恢复"}
+                      {restoreBusy ? "恢复中…" : "恢复"}
+                    </button>{" "}
+                    <button
+                      className="danger"
+                      onClick={() => void onDelete({ ts: b.ts, preserved: b.preserved })}
+                      disabled={!!busy}
+                      title={b.preserved ? "已锁定，删除会永久丢失原始配置" : "删除此备份"}
+                    >
+                      {deleteBusy ? "删除中…" : "删除"}
                     </button>
                   </td>
                 </tr>

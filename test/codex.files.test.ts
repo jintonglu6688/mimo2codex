@@ -105,6 +105,49 @@ describe("codex/files", () => {
     expect(list.map((e) => e.ts)).toEqual([300, 200, 100]);
   });
 
+  it("backupFile with preserve=true appends .preserve and is flagged in listBackups", async () => {
+    const { files, paths } = await loadModules();
+    const target = path.join(paths.codexDir(), "auth.json");
+    files.atomicWrite(target, "x");
+    const backup = files.backupFile(target, 555, { preserve: true });
+    expect(backup).not.toBeNull();
+    expect(backup!).toMatch(/auth\.json\.bak\.555\.\d+\.preserve$/);
+    const entries = files.listBackups(target);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].preserved).toBe(true);
+    expect(entries[0].ts).toBe(555);
+  });
+
+  it("pruneBackups NEVER drops preserved backups, even past the keep limit", async () => {
+    const { files, paths } = await loadModules();
+    const target = path.join(paths.codexDir(), "auth.json");
+    files.atomicWrite(target, "v1");
+    // 3 preserved + 12 regular. keep=10 means 10 regular survive + all 3 preserved.
+    for (let i = 100; i < 103; i++) files.backupFile(target, i, { preserve: true });
+    for (let i = 1; i <= 12; i++) files.backupFile(target, 1000 + i);
+    files.pruneBackups(target, 10);
+    const remaining = files.listBackups(target);
+    const preserved = remaining.filter((e) => e.preserved);
+    const unpreserved = remaining.filter((e) => !e.preserved);
+    expect(preserved.map((e) => e.ts).sort()).toEqual([100, 101, 102]);
+    expect(unpreserved).toHaveLength(10);
+    // Newest 10 of the regular ones kept (1003..1012).
+    expect(unpreserved[0].ts).toBe(1012);
+    expect(unpreserved.map((e) => e.ts)).not.toContain(1001);
+    expect(unpreserved.map((e) => e.ts)).not.toContain(1002);
+  });
+
+  it("deleteBackupsAt removes all variants for a given ts (preserved + regular)", async () => {
+    const { files, paths } = await loadModules();
+    const target = path.join(paths.codexDir(), "auth.json");
+    files.atomicWrite(target, "x");
+    files.backupFile(target, 777);
+    files.backupFile(target, 777, { preserve: true });
+    files.backupFile(target, 888);
+    expect(files.deleteBackupsAt(target, 777)).toBe(2);
+    expect(files.listBackups(target).map((e) => e.ts)).toEqual([888]);
+  });
+
   it("pruneBackups keeps the most recent N, drops the rest, never deletes the latest", async () => {
     const { files, paths } = await loadModules();
     const target = path.join(paths.codexDir(), "auth.json");

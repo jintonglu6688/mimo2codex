@@ -37,13 +37,22 @@ export function atomicWrite(filePath: string, contents: string): void {
   }
 }
 
-// Copy `filePath` to `<filePath>.bak.<ts>` (`.<pid>` suffix avoids collisions
-// when two apply requests share a Date.now() millisecond). Returns the
-// backup path, or null if the source file does not exist.
-export function backupFile(filePath: string, ts: number): string | null {
+// Copy `filePath` to `<filePath>.bak.<ts>.<pid>`. When `opts.preserve` is
+// true, append a `.preserve` suffix — `pruneBackups` then refuses to drop
+// it under any keep limit. We use this for the *first* apply that
+// overwrites an external auth.json (i.e. a real OpenAI login) so the user
+// can always undo their way back to that state, no matter how many times
+// they switch models afterwards.
+// Returns the backup path, or null if the source file does not exist.
+export function backupFile(
+  filePath: string,
+  ts: number,
+  opts?: { preserve?: boolean }
+): string | null {
   assertInsideCodexDir(filePath);
   if (!existsSync(filePath)) return null;
-  const backup = `${filePath}.bak.${ts}.${process.pid}`;
+  const tail = opts?.preserve ? ".preserve" : "";
+  const backup = `${filePath}.bak.${ts}.${process.pid}${tail}`;
   copyFileSync(filePath, backup);
   return backup;
 }
@@ -51,10 +60,15 @@ export function backupFile(filePath: string, ts: number): string | null {
 export interface BackupEntry {
   path: string;
   ts: number;
+  // True when the backup filename ends in `.preserve`. Preserved backups
+  // survive `pruneBackups` so the user's original real-OpenAI config never
+  // ages out as they keep switching models.
+  preserved: boolean;
 }
 
-// Enumerate all `<basename>.bak.<ts>[.<pid>]` siblings of `filePath`.
-// Sorted by ts descending so callers can treat index 0 as "most recent".
+// Enumerate all `<basename>.bak.<ts>[.<pid>][.preserve]` siblings of
+// `filePath`. Sorted by ts descending so callers can treat index 0 as
+// "most recent".
 export function listBackups(filePath: string): BackupEntry[] {
   assertInsideCodexDir(filePath);
   const dir = path.dirname(filePath);
@@ -65,27 +79,51 @@ export function listBackups(filePath: string): BackupEntry[] {
   for (const name of readdirSync(dir)) {
     if (!name.startsWith(prefix)) continue;
     const rest = name.slice(prefix.length);
-    // rest is "<ts>" or "<ts>.<pid>"; parse the leading integer.
+    // rest looks like "<ts>", "<ts>.<pid>", "<ts>.<pid>.preserve", or
+    // "<ts>.preserve". Parse the leading integer for ts; flag preserve
+    // when the suffix is present.
     const m = /^(\d+)/.exec(rest);
     if (!m) continue;
-    entries.push({ path: path.join(dir, name), ts: Number(m[1]) });
+    entries.push({
+      path: path.join(dir, name),
+      ts: Number(m[1]),
+      preserved: name.endsWith(".preserve"),
+    });
   }
   entries.sort((a, b) => b.ts - a.ts);
   return entries;
 }
 
-// Keep the `keep` newest backups; delete the rest. Safe to call right after
-// generating a new backup — the just-created one sorts first by ts so it
-// can never be pruned.
+// Keep `keep` newest non-preserved backups; preserved backups are NEVER
+// pruned. Safe to call right after generating a new backup: the just-
+// created one sorts first by ts so it can never fall outside the window.
 export function pruneBackups(filePath: string, keep = 10): void {
   const all = listBackups(filePath);
-  for (const entry of all.slice(keep)) {
+  const unpreserved = all.filter((e) => !e.preserved);
+  for (const entry of unpreserved.slice(keep)) {
     try {
       rmSync(entry.path, { force: true });
     } catch {
       /* best-effort; missing or locked files shouldn't block apply */
     }
   }
+}
+
+// Delete all backup files (any pid, any preserve flag) for the given ts.
+// Used by the admin UI to let users clean up specific backups. Returns
+// the number of files deleted.
+export function deleteBackupsAt(filePath: string, ts: number): number {
+  let n = 0;
+  for (const entry of listBackups(filePath)) {
+    if (entry.ts !== ts) continue;
+    try {
+      rmSync(entry.path, { force: true });
+      n++;
+    } catch {
+      /* best-effort */
+    }
+  }
+  return n;
 }
 
 export type AuthJsonOwner = "mimo2codex" | "external" | "missing";
