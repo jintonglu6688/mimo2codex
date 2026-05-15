@@ -284,12 +284,22 @@ async function handleApi(ctx: RouteContext): Promise<void> {
       return sendJson(res, 200, { models: listModels(id) });
     }
     if (req.method === "POST") {
-      const body = await readJsonBody<Partial<{ upstream_id: string; display_name: string }>>(req);
+      const body = await readJsonBody<
+        Partial<{ upstream_id: string; display_name: string; context_window: number | null }>
+      >(req);
       if (!body.upstream_id) return sendError(res, 400, "missing_upstream_id", "upstream_id required");
+      // Default new user-added models to a 1M context window — matches the
+      // builtin MiMo / DeepSeek caps so the generated Codex toml doesn't
+      // preemptively /compact, and matches user expectation that "newly
+      // added models advertise the same window as the rest of the catalog".
+      // Explicit values from the client (including null) still win.
+      const contextWindow =
+        body.context_window === undefined ? 1_000_000 : body.context_window;
       try {
         const row = insertCustomModel(id as ProviderId, {
           upstream_id: body.upstream_id,
           display_name: body.display_name,
+          context_window: contextWindow,
         });
         return sendJson(res, 201, { model: row });
       } catch (err) {

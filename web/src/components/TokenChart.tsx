@@ -64,6 +64,65 @@ function niceCeil(value: number): number {
   return nice * pow;
 }
 
+// Fritsch–Carlson monotone cubic interpolation: builds a smooth SVG path
+// through the given points without overshooting local extrema. Compared to
+// straight line segments, this softens spike-shaped traffic patterns (e.g.
+// hourly token bursts) into rounded curves without bulging below 0.
+function smoothPath(points: Array<{ x: number; y: number }>): string {
+  const n = points.length;
+  if (n === 0) return "";
+  if (n === 1) return `M${points[0].x},${points[0].y}`;
+  if (n === 2) return `M${points[0].x},${points[0].y} L${points[1].x},${points[1].y}`;
+
+  const dx: number[] = [];
+  const m: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const d = points[i + 1].x - points[i].x;
+    dx.push(d);
+    m.push(d === 0 ? 0 : (points[i + 1].y - points[i].y) / d);
+  }
+
+  const tan: number[] = new Array(n);
+  tan[0] = m[0];
+  tan[n - 1] = m[n - 2];
+  for (let i = 1; i < n - 1; i++) {
+    tan[i] = m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2;
+  }
+  // Monotonicity correction (Fritsch & Carlson 1980).
+  for (let i = 0; i < n - 1; i++) {
+    if (m[i] === 0) {
+      tan[i] = 0;
+      tan[i + 1] = 0;
+    } else {
+      const a = tan[i] / m[i];
+      const b = tan[i + 1] / m[i];
+      const h = a * a + b * b;
+      if (h > 9) {
+        const t = 3 / Math.sqrt(h);
+        tan[i] = t * a * m[i];
+        tan[i + 1] = t * b * m[i];
+      }
+    }
+  }
+
+  let d = `M${points[0].x},${points[0].y}`;
+  for (let i = 0; i < n - 1; i++) {
+    const cp1x = points[i].x + dx[i] / 3;
+    const cp1y = points[i].y + (tan[i] * dx[i]) / 3;
+    const cp2x = points[i + 1].x - dx[i] / 3;
+    const cp2y = points[i + 1].y - (tan[i + 1] * dx[i]) / 3;
+    d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${points[i + 1].x},${points[i + 1].y}`;
+  }
+  return d;
+}
+
+// Stable id for a series — used as gradient anchor in <defs>. Strips characters
+// SVG ids can't contain.
+function gradientId(model: string, providerId: string): string {
+  const raw = `${providerId}__${model}`;
+  return `tc-grad-${raw.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+
 interface RolledUpSeries extends TokenTimeseriesSeries {
   label: string;
   color: string;
@@ -303,15 +362,45 @@ export function TokenChart({ data }: { data: TokenTimeseriesResponse }) {
           />
         )}
 
+        <defs>
+          {visibleSeries.map((s) => {
+            const gid = gradientId(s.upstream_model, s.provider_id);
+            return (
+              <linearGradient
+                key={gid}
+                id={gid}
+                x1="0"
+                y1="0"
+                x2="0"
+                y2="1"
+              >
+                <stop offset="0%" stopColor={s.color} stopOpacity="0.32" />
+                <stop offset="100%" stopColor={s.color} stopOpacity="0" />
+              </linearGradient>
+            );
+          })}
+        </defs>
+
         {visibleSeries.map((s) => {
-          const pts = s.tokens.map((v, i) => `${xFor(i)},${yFor(v)}`).join(" ");
+          const pts = s.tokens.map((v, i) => ({ x: xFor(i), y: yFor(v) }));
+          const linePath = smoothPath(pts);
+          // Close down to the x-axis baseline so we can fill the area under
+          // the curve with the per-series gradient.
+          const baselineY = PAD_TOP + plotH;
+          const lastX = pts[pts.length - 1]?.x ?? PAD_LEFT;
+          const firstX = pts[0]?.x ?? PAD_LEFT;
+          const areaPath =
+            linePath +
+            ` L${lastX},${baselineY} L${firstX},${baselineY} Z`;
+          const gid = gradientId(s.upstream_model, s.provider_id);
           return (
             <g key={s.upstream_model}>
-              <polyline
-                points={pts}
+              <path d={areaPath} fill={`url(#${gid})`} stroke="none" />
+              <path
+                d={linePath}
                 fill="none"
                 stroke={s.color}
-                strokeWidth="2"
+                strokeWidth="2.25"
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />
