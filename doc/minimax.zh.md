@@ -89,18 +89,18 @@ mimo2codex
 
 ### `features.*`（MiniMax 兼容子开关）
 
-全部默认 `false`。开 `minimaxCompat: true` 等价同时开下面 6 个：
+全部默认 `false`。开 `minimaxCompat: true` 默认包揽下面**带 ✅ 的 5 个**子开关。`dropStreamOptions` / `dropParallelToolCalls` **不**在一键预设里——因为这两个是 OpenAI 官方规范字段，MiniMax 接受，而且 `stream_options.include_usage` 是 admin DB token 统计的来源。
 
-| 字段 | 删什么 |
-|---|---|
-| `minimaxCompat` | **一键预设** —— 下面 6 个全开 |
-| `dropNullStrict` | `tools[*].function.strict === null`（保留显式 true/false） |
-| `dropNullContent` | assistant 消息上 `content === null` 字段 |
-| `dropToolChoiceAuto` | `tool_choice === "auto"`（"auto" 即默认值） |
-| `dropStreamOptions` | 整个 `stream_options` 字段。⚠️ 会让 admin DB 的 token 统计 / 缓存命中柱状图变 0（上游不再回传 usage） |
-| `dropParallelToolCalls` | 整个 `parallel_tool_calls` 字段 |
-| `mergeSystemMessages` | 合并所有 `role: "system"` 消息为单条前置（双换行拼接） |
-| `extractThinkTags` | **响应侧**：把 chat completion `content` 里的 inline `<think>...</think>` 块切出来，并入 `reasoning_content`。不开启的话 Codex 会把 `<think>...</think>` 当作正常 assistant 文本直接显示 |
+| 字段 | 一键预设 | 删什么 |
+|---|---|---|
+| `minimaxCompat` | — | **一键预设**（包揽下面带 ✅ 的子开关） |
+| `dropNullStrict` | ✅ | `tools[*].function.strict === null`（保留显式 true/false） |
+| `dropNullContent` | ✅ | assistant 消息上 `content === null` 字段 |
+| `dropToolChoiceAuto` | ✅ | `tool_choice === "auto"`（"auto" 即默认值） |
+| `mergeSystemMessages` | ✅ | 合并所有 `role: "system"` 消息为单条前置（双换行拼接） |
+| `extractThinkTags` | ✅ | **响应侧**：把 chat completion `content` 里的 inline `<think>...</think>` 块切出来，并入 `reasoning_content`。不开启 Codex 会把 `<think>...</think>` 当作正常 assistant 文本直接显示 |
+| `dropStreamOptions` | ❌ | 整个 `stream_options` 字段。⚠️ 删了上游不再回传 usage → admin DB token 统计 / 缓存命中柱状图变 0。**仅在上游真的因此 400** 时再单独勾选 |
+| `dropParallelToolCalls` | ❌ | 整个 `parallel_tool_calls` 字段。OpenAI 标准字段；仅在上游明确报错时再单独勾选 |
 
 ## 验证
 

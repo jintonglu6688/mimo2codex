@@ -69,8 +69,8 @@ describe("applyMinimaxCompat — defaults", () => {
   });
 });
 
-describe("applyMinimaxCompat — minimaxCompat: true (all-in preset)", () => {
-  it("strips every MiniMax-rejected field at once", () => {
+describe("applyMinimaxCompat — minimaxCompat: true (preset)", () => {
+  it("preset strips MiniMax-rejected fields but PRESERVES stream_options / parallel_tool_calls", () => {
     const chat = makeDirtyChat();
     applyMinimaxCompat(chat, { minimaxCompat: true });
 
@@ -100,11 +100,12 @@ describe("applyMinimaxCompat — minimaxCompat: true (all-in preset)", () => {
     // 3. tool_choice "auto" removed
     expect("tool_choice" in chat).toBe(false);
 
-    // 4. stream_options removed
-    expect("stream_options" in chat).toBe(false);
+    // 4. stream_options KEPT — OpenAI standard field, MiniMax accepts it,
+    //    and removing it breaks token usage reporting.
+    expect(chat.stream_options).toEqual({ include_usage: true });
 
-    // 5. parallel_tool_calls removed
-    expect("parallel_tool_calls" in chat).toBe(false);
+    // 5. parallel_tool_calls KEPT — OpenAI standard field, MiniMax accepts it.
+    expect(chat.parallel_tool_calls).toBe(false);
 
     // 6. system messages merged into one leading entry
     const systems = chat.messages.filter((m) => m.role === "system");
@@ -116,6 +117,19 @@ describe("applyMinimaxCompat — minimaxCompat: true (all-in preset)", () => {
     // non-system messages preserved in their relative order
     const nonSystem = chat.messages.filter((m) => m.role !== "system");
     expect(nonSystem.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
+  });
+
+  it("preset + explicit dropStreamOptions / dropParallelToolCalls together → all stripped", () => {
+    // Escape hatch for the rare upstream that does reject these fields:
+    // open the preset and the two leaf switches alongside.
+    const chat = makeDirtyChat();
+    applyMinimaxCompat(chat, {
+      minimaxCompat: true,
+      dropStreamOptions: true,
+      dropParallelToolCalls: true,
+    });
+    expect("stream_options" in chat).toBe(false);
+    expect("parallel_tool_calls" in chat).toBe(false);
   });
 
   it("is idempotent (second pass changes nothing)", () => {

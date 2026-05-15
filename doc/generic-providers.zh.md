@@ -116,12 +116,12 @@ mimo2codex --model qwen        # 默认 provider 是 qwen
 | `models` | — | `[]` | 声明该 provider 的模型清单（详见下节） |
 | `features.forceParallelToolCalls` | — | `false` | 强制开启 `parallel_tool_calls: true`（agentic 编程任务推荐打开） |
 | `features.webSearch` | — | `false` | 把 Codex 的 `web_search` 工具透传给上游（仅对支持 builtin web_search 的上游有意义） |
-| `features.minimaxCompat` | — | `false` | **MiniMax 一键预设**：等价于打开下面 6 个 sanitizer。详见 [minimax.zh.md](./minimax.zh.md) |
+| `features.minimaxCompat` | — | `false` | **MiniMax 一键预设**：默认包揽 `dropNullStrict` + `dropNullContent` + `dropToolChoiceAuto` + `mergeSystemMessages` + `extractThinkTags` 共 5 个开关。`dropStreamOptions` / `dropParallelToolCalls` **不**在预设里（它们是 OpenAI 标准字段，删了会让 token 统计变 0）。详见 [minimax.zh.md](./minimax.zh.md) |
 | `features.dropNullStrict` | — | `false` | 删 `tools[*].function.strict === null`（MiniMax 拒绝 null） |
 | `features.dropNullContent` | — | `false` | 删 assistant `content === null` 字段（MiniMax 拒绝 null） |
 | `features.dropToolChoiceAuto` | — | `false` | 删 `tool_choice === "auto"`（默认值；MiniMax 拒绝显式传） |
-| `features.dropStreamOptions` | — | `false` | 删 `stream_options`。⚠️ 上游将不再回传 `usage` → admin DB token 统计会变 0 |
-| `features.dropParallelToolCalls` | — | `false` | 删 `parallel_tool_calls` |
+| `features.dropStreamOptions` | — | `false` | 删 `stream_options`。⚠️ 上游将不再回传 `usage` → admin DB token 统计会变 0。**不**在 `minimaxCompat` 预设里 |
+| `features.dropParallelToolCalls` | — | `false` | 删 `parallel_tool_calls`。**不**在 `minimaxCompat` 预设里 |
 | `features.mergeSystemMessages` | — | `false` | 合并所有 `role: "system"` 消息为单条前置（MiniMax 只接受 1 条） |
 | `features.extractThinkTags` | — | `false` | 响应侧：把 `content` 里的 `<think>...</think>` 块切到 `reasoning_content`（MiniMax M1/M2/M3、GLM/Qwen-thinking 等使用 inline 思考） |
 | `forceDefaultModel` | — | `false` | 当 `models: []` 时让 resolveModel 返回 null，未知 model 名改写到 `defaultModel`。配 MiniMax env-var 单实例使用 |

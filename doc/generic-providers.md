@@ -116,12 +116,12 @@ mimo2codex --model qwen        # default provider = qwen
 | `models` | — | `[]` | Declared model catalog for this provider (see next section) |
 | `features.forceParallelToolCalls` | — | `false` | Force `parallel_tool_calls: true` (recommended for agentic-coding upstreams) |
 | `features.webSearch` | — | `false` | Forward Codex's `web_search` tool (only meaningful if upstream has a builtin web_search) |
-| `features.minimaxCompat` | — | `false` | **MiniMax preset**: enable all 6 sanitizers below in one go. See [minimax.md](./minimax.md) |
+| `features.minimaxCompat` | — | `false` | **MiniMax preset**: enables `dropNullStrict` + `dropNullContent` + `dropToolChoiceAuto` + `mergeSystemMessages` + `extractThinkTags` (5 switches). `dropStreamOptions` / `dropParallelToolCalls` are NOT included (they're OpenAI standard fields and dropping them breaks token statistics). See [minimax.md](./minimax.md) |
 | `features.dropNullStrict` | — | `false` | Strip `tools[*].function.strict === null` (MiniMax rejects null) |
 | `features.dropNullContent` | — | `false` | Strip assistant `content === null` fields (MiniMax rejects null) |
 | `features.dropToolChoiceAuto` | — | `false` | Strip `tool_choice === "auto"` (the default; MiniMax rejects explicit "auto") |
-| `features.dropStreamOptions` | — | `false` | Strip `stream_options`. ⚠️ Upstream stops returning `usage` → admin DB token stats become 0 |
-| `features.dropParallelToolCalls` | — | `false` | Strip `parallel_tool_calls` |
+| `features.dropStreamOptions` | — | `false` | Strip `stream_options`. ⚠️ Upstream stops returning `usage` → admin DB token stats become 0. NOT in `minimaxCompat` preset |
+| `features.dropParallelToolCalls` | — | `false` | Strip `parallel_tool_calls`. NOT in `minimaxCompat` preset |
 | `features.mergeSystemMessages` | — | `false` | Merge all `role: "system"` messages into one leading entry (MiniMax accepts only one) |
 | `features.extractThinkTags` | — | `false` | Response side: extract `<think>...</think>` blocks out of `content` into `reasoning_content` (MiniMax M1/M2/M3, GLM/Qwen-thinking emit inline thinking) |
 | `forceDefaultModel` | — | `false` | When `models: []`, return null from resolveModel so unknown client model ids rewrite to `defaultModel`. Use with MiniMax env-var single-instance |

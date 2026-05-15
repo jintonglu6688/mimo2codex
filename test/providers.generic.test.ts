@@ -443,7 +443,9 @@ describe("loadGenericProviders — providers.json forceDefaultModel + features.m
       expect(p.id).toBe("minimax");
       expect(p.resolveModel("gpt-5.5")).toBeNull(); // forceDefaultModel respected
 
-      // preprocessResponses should now strip MiniMax-rejected fields end-to-end
+      // preprocessResponses should strip MiniMax-rejected fields end-to-end,
+      // but PRESERVE stream_options + parallel_tool_calls (OpenAI standard fields,
+      // dropping them breaks admin DB token statistics).
       const chat = p.preprocessResponses(
         {
           model: "MiniMax-M2.7",
@@ -454,10 +456,10 @@ describe("loadGenericProviders — providers.json forceDefaultModel + features.m
         },
         { runtime: { apiKey: "k", baseUrl: "u", flags: {} }, exposeReasoning: true },
       );
-      expect("stream_options" in chat).toBe(false);
       expect("tool_choice" in chat).toBe(false);
-      // forceParallelToolCalls true → reqToChat sets it; minimaxCompat preset then deletes it
-      expect("parallel_tool_calls" in chat).toBe(false);
+      // OpenAI standard fields kept; needed for token usage roundtrip.
+      expect(chat.stream_options).toEqual({ include_usage: true });
+      expect(chat.parallel_tool_calls).toBe(true); // forceParallelToolCalls
     } finally {
       rmSync(tmp2, { recursive: true, force: true });
     }

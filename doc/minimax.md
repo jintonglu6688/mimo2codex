@@ -89,18 +89,18 @@ mimo2codex
 
 ### `features.*` (MiniMax compat switches)
 
-All default `false`. Setting `minimaxCompat: true` is equivalent to turning on all six below:
+All default `false`. Setting `minimaxCompat: true` enables the five switches marked **✅** below. `dropStreamOptions` / `dropParallelToolCalls` are **not** in the preset — they're OpenAI standard fields MiniMax accepts, and `stream_options.include_usage` is the source of admin DB token statistics.
 
-| Field | What it strips |
-|---|---|
-| `minimaxCompat` | **All-in preset** — enables all six switches below |
-| `dropNullStrict` | `tools[*].function.strict === null` (explicit `true`/`false` preserved) |
-| `dropNullContent` | assistant message `content === null` fields |
-| `dropToolChoiceAuto` | `tool_choice === "auto"` ("auto" is the default anyway) |
-| `dropStreamOptions` | Entire `stream_options` field. ⚠️ Upstream won't return `usage` → admin DB token stats / cache-hit chart go to 0 |
-| `dropParallelToolCalls` | Entire `parallel_tool_calls` field |
-| `mergeSystemMessages` | Merge all `role: "system"` messages into one leading entry (joined by `\n\n`) |
-| `extractThinkTags` | **Response side**: extract inline `<think>...</think>` blocks from `content` into `reasoning_content`. Without this Codex displays `<think>...</think>` verbatim as plain assistant text |
+| Field | In preset | What it strips |
+|---|---|---|
+| `minimaxCompat` | — | **Preset** (enables the ✅ switches below) |
+| `dropNullStrict` | ✅ | `tools[*].function.strict === null` (explicit `true`/`false` preserved) |
+| `dropNullContent` | ✅ | assistant message `content === null` fields |
+| `dropToolChoiceAuto` | ✅ | `tool_choice === "auto"` ("auto" is the default anyway) |
+| `mergeSystemMessages` | ✅ | Merge all `role: "system"` messages into one leading entry (joined by `\n\n`) |
+| `extractThinkTags` | ✅ | **Response side**: extract inline `<think>...</think>` blocks from `content` into `reasoning_content`. Without this Codex displays `<think>...</think>` verbatim as plain assistant text |
+| `dropStreamOptions` | ❌ | Entire `stream_options` field. ⚠️ Upstream stops returning `usage` → admin DB token stats / cache-hit chart go to 0. **Enable only if upstream actually 400s on it** |
+| `dropParallelToolCalls` | ❌ | Entire `parallel_tool_calls` field. OpenAI standard; enable only when upstream explicitly rejects it |
 
 ## Verification
 

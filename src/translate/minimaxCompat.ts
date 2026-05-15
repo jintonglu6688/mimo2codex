@@ -20,7 +20,21 @@
 import type { ChatRequest, ChatMessage, ChatTool } from "./types.js";
 
 export interface MinimaxCompatFeatures {
-  /** 一键预设：等价于把下面所有子开关都设为 true。MiniMax 用户默认开这个就行。 */
+  /**
+   * 一键预设。打开后**默认包揽**下面这些子开关：
+   *   - dropNullStrict
+   *   - dropNullContent
+   *   - dropToolChoiceAuto
+   *   - mergeSystemMessages
+   *   - extractThinkTags
+   *
+   * **不**包揽：
+   *   - dropStreamOptions  / dropParallelToolCalls
+   *     这两个是 OpenAI 官方 Chat Completions 规范字段，绝大多数严格 OpenAI 兼容
+   *     上游（含 MiniMax）都接受；尤其 `stream_options.include_usage` 是 token
+   *     用量回传的入口，删了之后 admin DB 的 token 统计会全 null。少数真的拒绝
+   *     的极端上游再单独勾选这两个子开关。
+   */
   minimaxCompat?: boolean;
   /** 删 `tools[*].function.strict === null`，保留显式 true/false。 */
   dropNullStrict?: boolean;
@@ -28,9 +42,17 @@ export interface MinimaxCompatFeatures {
   dropNullContent?: boolean;
   /** 删 `tool_choice === "auto"`（"auto" 是默认值，省略与显式传等价）。 */
   dropToolChoiceAuto?: boolean;
-  /** 删 `stream_options` 整个字段。注意：这会让上游不再回传 usage，admin DB 的缓存命中柱状图会受影响。 */
+  /**
+   * 删 `stream_options` 整个字段。⚠️ 上游不再回传 usage → admin DB 的 token 统计 /
+   * 缓存命中柱状图会变 0。**仅在上游真的因为 stream_options 而 400 时**才开；
+   * MiniMax / 大多数严格 OpenAI 兼容上游都接受这个字段，无需打开。
+   * 不在 `minimaxCompat: true` 一键预设里。
+   */
   dropStreamOptions?: boolean;
-  /** 删 `parallel_tool_calls` 整个字段。 */
+  /**
+   * 删 `parallel_tool_calls` 整个字段。OpenAI 标准字段，多数上游接受；仅在上游
+   * 明确报错时打开。不在 `minimaxCompat: true` 一键预设里。
+   */
   dropParallelToolCalls?: boolean;
   /** 合并所有 role:"system" 消息为单条前置（双换行拼接），符合 MiniMax 单 system 约束。 */
   mergeSystemMessages?: boolean;
@@ -44,11 +66,26 @@ export interface MinimaxCompatFeatures {
   extractThinkTags?: boolean;
 }
 
+// minimaxCompat: true 默认包揽的子开关白名单。把潜在副作用大的开关
+// （dropStreamOptions / dropParallelToolCalls）排除在外——它们仍然作为
+// 子开关存在，只是不被一键预设默认勾上。
+const MINIMAX_COMPAT_DEFAULTS: ReadonlySet<
+  Exclude<keyof MinimaxCompatFeatures, "minimaxCompat">
+> = new Set([
+  "dropNullStrict",
+  "dropNullContent",
+  "dropToolChoiceAuto",
+  "mergeSystemMessages",
+  "extractThinkTags",
+]);
+
 function isOn(
   features: MinimaxCompatFeatures,
   key: Exclude<keyof MinimaxCompatFeatures, "minimaxCompat">,
 ): boolean {
-  return !!features.minimaxCompat || !!features[key];
+  if (features[key]) return true;
+  if (features.minimaxCompat && MINIMAX_COMPAT_DEFAULTS.has(key)) return true;
+  return false;
 }
 
 /**
