@@ -21,7 +21,12 @@ Local proxy that lets the **latest OpenAI Codex CLI / desktop** talk to virtuall
 
 > 📌 **Heads-up for MiMo users**: per [MiMo's official advisory](https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/passing-back-reasoning_content), every assistant message with `tool_calls` must echo back its original `reasoning_content` on the next turn — otherwise MiMo returns **400** or silently degrades into hallucination (agent rambles instead of calling tools, burning tokens). Codex is on MiMo's list of affected products. **mimo2codex ≥ 0.2.3 handles this round-trip automatically**; older versions and most other Codex-side proxies don't. If you hit the symptoms, [upgrade](#troubleshooting).
 
-> 🆕 **New in v0.2.6 (2026-05-14) — "Codex Enable" page**: one-click write of `~/.codex/auth.json` + `config.toml` from the admin webui — a **cc-switch replacement** for Codex-only users. Comes with a "runtime override" mode (swap upstream models without restarting Codex). Old files are auto-backed-up, and **the first backup that captures your real OpenAI auth.json is permanently preserved** — switch models 100 times and you can still roll back to your original Codex config. See [doc/codex-enable.md](./doc/codex-enable.md).
+<details>
+<summary>🆕 <b>What's new / changelog</b> (click to expand)</summary>
+
+- **v0.2.6 (2026-05-14) · "Codex Enable" page**: one-click write of `~/.codex/auth.json` + `config.toml` from the admin webui — a **cc-switch replacement** for Codex-only users. Comes with a "runtime override" mode (swap upstream models without restarting Codex). Old files are auto-backed-up, and **the first backup that captures your real OpenAI auth.json is permanently preserved** — switch models 100 times and you can still roll back to your original Codex config. See [doc/codex-enable.md](./doc/codex-enable.md).
+
+</details>
 
 ![mimo2codex install + run](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/images/npminstall.jpg)
 

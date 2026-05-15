@@ -21,7 +21,12 @@
 
 > 📌 **MiMo 用户重要提示**：按 [MiMo 官方公告](https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/passing-back-reasoning_content)，**每一条带 `tool_calls` 的 assistant 消息在后续轮次必须回传原始 `reasoning_content`**，否则 MiMo 直接 **400** 或软退化成幻觉（agent 不调工具、自言自语、烧 token）。Codex 在公告受影响产品清单里。**mimo2codex ≥ 0.2.3 自动处理这个回传**；老版本和大部分 Codex 侧的代理都不处理。碰到上述症状请[升级](#故障排查)。
 
-> 🆕 **v0.2.6（2026-05-14）新增「Codex 启用」**：admin webui 一键写入 `~/.codex/auth.json` + `config.toml`，**替代 cc-switch**；同时提供"运行时覆盖"（无需重启 Codex 即可换上游 model）。原文件自动备份，**首次覆盖外部 auth.json 时的备份永久保留**——切换 100 次模型也找得回你原来的真 Codex 配置。详见 [doc/codex-enable.zh.md](./doc/codex-enable.zh.md)。
+<details>
+<summary>🆕 <b>新功能 / 版本更新</b>（点击展开）</summary>
+
+- **v0.2.6（2026-05-14）· 「Codex 启用」**：admin webui 一键写入 `~/.codex/auth.json` + `config.toml`，**替代 cc-switch**；同时提供"运行时覆盖"（无需重启 Codex 即可换上游 model）。原文件自动备份，**首次覆盖外部 auth.json 时的备份永久保留**——切换 100 次模型也找得回你原来的真 Codex 配置。详见 [doc/codex-enable.zh.md](./doc/codex-enable.zh.md)。
+
+</details>
 
 ![mimo2codex 安装与启动](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/images/npminstall.jpg)
 
