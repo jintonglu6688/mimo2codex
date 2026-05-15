@@ -85,6 +85,15 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
     void refreshVersion();
+    // Backend's GET /update-status kicks off a background npm fetch when the
+    // cache is past 6h TTL — but the current request still returns the stale
+    // value. Re-fetch ~3s later so the freshly-written cache is picked up
+    // without forcing the user to manually refresh. Cheap (single GET, reads
+    // a local JSON file on the server) and only fires once per mount.
+    const followup = setTimeout(() => {
+      void refreshVersion();
+    }, 3000);
+    return () => clearTimeout(followup);
   }, [refresh, refreshVersion]);
 
   useEffect(() => {

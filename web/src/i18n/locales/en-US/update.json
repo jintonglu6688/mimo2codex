@@ -30,6 +30,9 @@
     "close": "Close"
   },
   "footer": {
-    "updateAvailable": "New version available: v{{latest}}"
+    "updateAvailable": "New version available: v{{latest}}",
+    "checkNow": "Check for updates",
+    "checking": "Checking…",
+    "lastChecked": "Last checked"
   }
 }

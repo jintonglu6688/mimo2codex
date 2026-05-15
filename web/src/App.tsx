@@ -159,8 +159,9 @@ function Shell() {
 function AppFooter() {
   const { t } = useTranslation();
   const { t: tUpdate } = useTranslation("update");
-  const { versionInfo } = useAppConfig();
+  const { versionInfo, forceCheckVersion } = useAppConfig();
   const [version, setVersion] = useState<string>("");
+  const [checking, setChecking] = useState(false);
   useEffect(() => {
     api
       .health()
@@ -169,6 +170,15 @@ function AppFooter() {
         /* footer is best-effort */
       });
   }, []);
+  const onCheckNow = async (): Promise<void> => {
+    if (checking) return;
+    setChecking(true);
+    try {
+      await forceCheckVersion();
+    } finally {
+      setChecking(false);
+    }
+  };
   const year = new Date().getFullYear();
   const showUpdateDot =
     versionInfo?.hasUpdate &&
@@ -216,6 +226,22 @@ function AppFooter() {
             rel="noreferrer"
           >
             {t("footer.docs")}
+          </a>
+          {" · "}
+          <a
+            onClick={(e) => {
+              e.preventDefault();
+              void onCheckNow();
+            }}
+            href="#"
+            style={{ opacity: checking ? 0.5 : 1 }}
+            title={
+              versionInfo?.checkedAt
+                ? `${tUpdate("footer.lastChecked")}: ${new Date(versionInfo.checkedAt).toLocaleString()}`
+                : undefined
+            }
+          >
+            {checking ? tUpdate("footer.checking") : tUpdate("footer.checkNow")}
           </a>
         </span>
       </div>

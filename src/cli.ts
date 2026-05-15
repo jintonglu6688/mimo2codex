@@ -20,7 +20,6 @@ import {
 } from "./setup/initEnv.js";
 import { PROVIDER_LIST } from "./providers/registry.js";
 import {
-  DEFAULT_TTL_MS,
   getCachedStatus,
   refreshCacheInBackground,
   type UpdateStatus,
@@ -557,31 +556,43 @@ async function main(): Promise<void> {
   printStartupBanner(cfg, resolveSnippetTarget(parsed.model), autoLoadedEnv);
 
   // Update-check: gated by --no-update-check / env / settings. Strategy:
-  //   1. Read cached status synchronously (offline, instant). If it shows a
-  //      newer version, prompt the user (TTY only) before starting the server.
-  //   2. Fire-and-forget a background refresh so the next launch sees a fresh
-  //      cache. We never block startup waiting for the network.
+  //   1. CLI restart is rare and explicit — the user is sitting at the
+  //      terminal asking "anything new?". So we ALWAYS hit npm at startup,
+  //      ignoring the 6h cache TTL. Without this, a cache written when
+  //      v0.2.10 was the latest known stays "fresh" for 6h after v0.2.11
+  //      ships, suppressing prompts across every restart in that window.
+  //   2. Race the refresh against a 2s timeout so a slow / blackholed npm
+  //      mirror never delays startup beyond 2s. Network failures bubble up
+  //      as a null resolution (refreshCacheInBackground swallows fetch
+  //      errors internally) and we fall through to cached state.
+  //   3. The refresh promise keeps running past the race timeout; even if
+  //      we couldn't use its result for this run's prompt, it still writes
+  //      the cache for the next launch and the webui's status endpoint.
+  //
   // Use dataDirForLoader (not cfg.dataDir): this honors --data-dir even
   // when --no-admin is passed, so opt-in-only users still get update prompts
   // from their cache file. Falls back to empty when nothing's resolvable.
   const updateCheckDataDir = dataDirForLoader || null;
   if (!shouldSkipUpdateCheck(parsed, process.env) && updateCheckDataDir) {
-    const cached = getCachedStatus({ currentVersion: VERSION, dataDir: updateCheckDataDir });
-    // Cache age check: if it's stale or absent, kick a refresh in the
-    // background. The current process won't use the result; next launch will.
-    const isStale =
-      cached.checkedAt === null || Date.now() - cached.checkedAt >= DEFAULT_TTL_MS;
-    if (isStale) {
-      refreshCacheInBackground({
-        currentVersion: VERSION,
-        dataDir: updateCheckDataDir,
-      }).catch(() => {
-        /* swallow — version check must never affect server startup */
-      });
-    }
-    if (cached.hasUpdate) {
+    const refreshPromise = refreshCacheInBackground({
+      currentVersion: VERSION,
+      dataDir: updateCheckDataDir,
+    }).catch(() => null);
+    const TIMEOUT = Symbol("timeout");
+    type RaceResult = UpdateStatus | null | typeof TIMEOUT;
+    const raced: RaceResult = await Promise.race([
+      refreshPromise,
+      new Promise<typeof TIMEOUT>((resolve) =>
+        setTimeout(() => resolve(TIMEOUT), 2000).unref()
+      ),
+    ]);
+    const status: UpdateStatus =
+      raced && raced !== TIMEOUT
+        ? (raced as UpdateStatus)
+        : getCachedStatus({ currentVersion: VERSION, dataDir: updateCheckDataDir });
+    if (status.hasUpdate) {
       try {
-        await maybePromptForUpdate(cached);
+        await maybePromptForUpdate(status);
       } catch (err) {
         // Prompt failures (e.g. raw-mode unsupported) should never block start
         log.warn("update prompt failed", { error: (err as Error).message });

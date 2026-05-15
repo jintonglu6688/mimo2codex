@@ -30,6 +30,9 @@
     "close": "关闭"
   },
   "footer": {
-    "updateAvailable": "有新版可用：v{{latest}}"
+    "updateAvailable": "有新版可用：v{{latest}}",
+    "checkNow": "立即检查更新",
+    "checking": "检查中…",
+    "lastChecked": "上次检查"
   }
 }

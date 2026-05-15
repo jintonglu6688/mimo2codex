@@ -55,7 +55,9 @@ import {
 import type { ChatRequest, ResponsesRequest } from "../translate/types.js";
 import {
   compareVersions,
+  DEFAULT_TTL_MS,
   getCachedStatus,
+  refreshCacheInBackground,
   resolveStatus,
   type UpdateStatus,
 } from "../util/checkUpdate.js";
@@ -974,8 +976,42 @@ function parseCurrentVersion(cfg: Config): string {
     : cfg.userAgent;
 }
 
+// Opportunistic background refresh: every GET /update-status (i.e. every
+// webui mount + every "Check now" idle poll) sees if the cache is past the
+// 6h TTL and, if so, fires a single un-awaited refresh. The current request
+// still returns the stale cached value (fast), and the *next* request picks
+// up the freshly-written cache. Combined with the frontend's 3-second
+// follow-up fetch on mount, a single page refresh surfaces new versions
+// within ~3 seconds without ever blocking on the network.
+//
+// Deduped via `inflightUpdateRefresh` so concurrent webui tabs don't
+// stampede the npm registry — at most one in-flight refresh per process.
+let inflightUpdateRefresh: Promise<unknown> | null = null;
+function maybeKickBackgroundRefresh(cfg: Config): void {
+  const dataDir = cfg.dataDir || null;
+  if (!dataDir) return;
+  const version = parseCurrentVersion(cfg);
+  const cached = getCachedStatus({ currentVersion: version, dataDir });
+  const stale =
+    cached.checkedAt === null || Date.now() - cached.checkedAt >= DEFAULT_TTL_MS;
+  if (!stale) return;
+  if (inflightUpdateRefresh) return;
+  inflightUpdateRefresh = refreshCacheInBackground({
+    currentVersion: version,
+    dataDir,
+  })
+    .catch(() => {
+      // Network / DNS failures must not break the admin endpoint — the
+      // cache just stays stale until the next attempt.
+    })
+    .finally(() => {
+      inflightUpdateRefresh = null;
+    });
+}
+
 function buildUpdateStatusPayload(cfg: Config): Record<string, unknown> {
   const version = parseCurrentVersion(cfg);
+  maybeKickBackgroundRefresh(cfg);
   const status = getCachedStatus({
     currentVersion: version,
     dataDir: cfg.dataDir || null,
@@ -1048,6 +1084,18 @@ function serveStatic(res: ServerResponse, pathname: string): void {
   const ct = MIME[extname(filePath).toLowerCase()] ?? "application/octet-stream";
   res.statusCode = 200;
   res.setHeader("Content-Type", ct);
+  // Cache policy:
+  //   - /admin/assets/*  →  Vite hashes the filename (index-<hash>.js), so
+  //     the content is forever-immutable. Letting the browser cache these
+  //     aggressively makes refreshes near-instant.
+  //   - Everything else (index.html, favicon.ico, …) must revalidate so a
+  //     mimo2codex upgrade actually surfaces the new bundle on next refresh
+  //     instead of getting served the previous version from browser cache.
+  if (pathname.startsWith("/admin/assets/")) {
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  } else {
+    res.setHeader("Cache-Control", "no-cache, must-revalidate");
+  }
   res.end(readFileSync(filePath));
 }
 
