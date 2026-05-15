@@ -3,6 +3,7 @@
 <p align="center">
   <a href="./README.md">English</a> ·
   <a href="./README.zh.md"><strong>简体中文</strong></a> ·
+  <a href="./doc/env-setup.zh.md">.env 配置</a> ·
   <a href="./doc/mimoskill.zh.md">mimoskill</a> ·
   <a href="./doc/generic-providers.zh.md">通用 Provider</a> ·
   <a href="./doc/codex-enable.zh.md">Codex 启用</a>
@@ -39,6 +40,7 @@
 - [支持](#支持) —— 能力对照表
 - [安装——任选一种](#安装任选一种) —— npm / 一键脚本 / 手动构建
 - [使用](#使用) —— 拿 key、启动代理、配置 Codex
+- [.env 与加载脚本](./doc/env-setup.zh.md) —— 一次填好 key，分系统快速配置（mac/Linux + Windows）
 - [Codex 启用 — webui 一键切模型（v0.2.6 新增，替代 cc-switch）](#codex-启用--webui-一键切模型v026-新增替代-cc-switch)
 - [配合 cc-switch 使用](#配合-cc-switch-使用)
 - [Admin 控制台](#admin-控制台) —— 概览 / 日志 / 模型 / 设置
@@ -51,7 +53,7 @@
 - [开发](#开发)
 - [许可证](#许可证)
 
-**详细文档：** [Codex 启用](./doc/codex-enable.zh.md) · [通用 provider](./doc/generic-providers.zh.md) · [mimoskill](./doc/mimoskill.zh.md)
+**详细文档：** [.env 配置](./doc/env-setup.zh.md) · [Codex 启用](./doc/codex-enable.zh.md) · [通用 provider](./doc/generic-providers.zh.md) · [mimoskill](./doc/mimoskill.zh.md)
 
 ## 解决什么问题
 
@@ -123,6 +125,8 @@ irm https://raw.githubusercontent.com/7as0nch/mimo2codex/main/scripts/install.ps
 > . .\scripts\load-env.ps1        # Windows PowerShell（注意前面的点号）
 > ```
 > 然后直接 `mimo2codex`。脚本不会打印 key 值，只列加载了哪些键名。
+>
+> 📖 更详细的分系统配置（PowerShell dot-source 注意事项、执行策略受阻兜底、Git Bash / WSL、cmd.exe 退路、`.env` 语法、常见问题）见 **[doc/env-setup.zh.md](./doc/env-setup.zh.md)**。
 
 **只用 MiMo**（默认）：
 

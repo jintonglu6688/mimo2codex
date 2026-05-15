@@ -3,6 +3,7 @@
 <p align="center">
   <a href="./README.md"><strong>English</strong></a> ·
   <a href="./README.zh.md">简体中文</a> ·
+  <a href="./doc/env-setup.md">Env Setup</a> ·
   <a href="./doc/mimoskill.md">mimoskill</a> ·
   <a href="./doc/generic-providers.md">Generic Providers</a> ·
   <a href="./doc/codex-enable.md">Codex Enable</a>
@@ -39,6 +40,7 @@ Local proxy that lets the **latest OpenAI Codex CLI / desktop** talk to virtuall
 - [What works](#what-works) — feature matrix
 - [Install — pick one](#install--pick-one) — npm / curl / clone
 - [Use](#use) — get a key, start the proxy, configure Codex
+- [.env + loader scripts](./doc/env-setup.md) — set up all keys once, per-OS quick guide (macOS/Linux + Windows)
 - [Codex Enable — one-click model switching in the webui (v0.2.6, replaces cc-switch)](#codex-enable--one-click-model-switching-in-the-webui-v026-replaces-cc-switch)
 - [Use with cc-switch](#use-with-cc-switch)
 - [Admin console](#admin-console) — dashboard, logs, models, settings
@@ -52,7 +54,7 @@ Local proxy that lets the **latest OpenAI Codex CLI / desktop** talk to virtuall
 - [Develop](#develop)
 - [License](#license)
 
-**Detailed guides:** [Codex Enable](./doc/codex-enable.md) · [Generic providers](./doc/generic-providers.md) · [mimoskill](./doc/mimoskill.md)
+**Detailed guides:** [.env setup](./doc/env-setup.md) · [Codex Enable](./doc/codex-enable.md) · [Generic providers](./doc/generic-providers.md) · [mimoskill](./doc/mimoskill.md)
 
 ## Why
 
@@ -124,6 +126,8 @@ Requires Node.js ≥ 18.
 > . .\scripts\load-env.ps1        # Windows PowerShell (note the leading dot)
 > ```
 > Then just run `mimo2codex`. The scripts never print the values — only which key names were loaded.
+>
+> 📖 Per-OS deep dive (PowerShell dot-source caveats, execution-policy fallback, Git Bash / WSL, cmd.exe workaround, `.env` syntax, FAQ): **[doc/env-setup.md](./doc/env-setup.md)**.
 
 **MiMo only** (default):
 
