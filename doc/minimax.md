@@ -19,9 +19,9 @@ In the Codex desktop client the first turn may succeed; the second turn (functio
 
 MiniMax is stricter than other OpenAI-compatible upstreams:
 
-| Field | OpenAI / MiMo / DeepSeek | MiniMax |
-|---|---|---|
-| `tools[*].function.strict: null` | accept | **reject** |
+| Field | OpenAI / DeepSeek | MiMo | MiniMax |
+|---|---|---|---|
+| `tools[*].function.strict: null` | accept | **reject** (issue #11) | **reject** |
 | assistant message `content: null` (with `tool_calls`) | accept | **reject** |
 | `tool_choice: "auto"` (explicit) | accept | **reject** (require omitted) |
 | `stream_options.include_usage` | accept | **reject** (non-standard) |
