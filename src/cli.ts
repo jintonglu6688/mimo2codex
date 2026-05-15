@@ -27,6 +27,7 @@ import {
 } from "./util/checkUpdate.js";
 import { runUpdate } from "./setup/runUpdate.js";
 import { printLogo } from "./util/logo.js";
+import { printBoxedBanner, colorizeSnippet } from "./util/cliBanner.js";
 
 // Discover the data-dir path WITHOUT creating it. Used for print-config /
 // print-cc-switch subcommands so a one-shot snippet print doesn't have
@@ -341,53 +342,46 @@ function printStartupBanner(
   target: SnippetTarget,
   autoLoadedEnv: { path: string; loaded: string[] } | null
 ): void {
-  // eslint-disable-next-line no-console
-  console.log(`mimo2codex v${VERSION} listening on http://${cfg.host}:${cfg.port}`);
+  // Collect every runtime status line first, then frame the whole block in
+  // a rounded box. Width is content-driven so the right border always aligns.
+  const lines: string[] = [];
+  lines.push(`mimo2codex v${VERSION} listening on http://${cfg.host}:${cfg.port}`);
   if (autoLoadedEnv) {
-    // eslint-disable-next-line no-console
-    console.log(
+    lines.push(
       `env file:    ${autoLoadedEnv.path} (${autoLoadedEnv.loaded.length} key${autoLoadedEnv.loaded.length === 1 ? "" : "s"}: ${autoLoadedEnv.loaded.join(", ") || "—"})`
     );
   }
-  // eslint-disable-next-line no-console
-  console.log(`provider:    ${cfg.defaultProviderId}`);
-  // eslint-disable-next-line no-console
-  console.log(`upstream:    ${cfg.baseUrl}`);
-  // eslint-disable-next-line no-console
-  console.log(`api key:     ${redactKey(cfg.apiKey)}`);
+  lines.push(`provider:    ${cfg.defaultProviderId}`);
+  lines.push(`upstream:    ${cfg.baseUrl}`);
+  lines.push(`api key:     ${redactKey(cfg.apiKey)}`);
   const mismatch = checkMimoHostMismatch(cfg);
   if (mismatch) {
-    // eslint-disable-next-line no-console
-    console.log(`⚠ 警告:      ${mismatch}`);
+    lines.push(`⚠ 警告:      ${mismatch}`);
   }
   if (cfg.defaultProviderId === "mimo") {
-    // eslint-disable-next-line no-console
-    console.log(
+    lines.push(
       `plan:        ${cfg.isTokenPlan ? "token-plan (web_search auto-disabled — plugin not available)" : "pay-as-you-go"}`
     );
   }
-  // eslint-disable-next-line no-console
-  console.log(`reasoning:   ${cfg.exposeReasoning ? "passthrough" : "hidden"}`);
+  lines.push(`reasoning:   ${cfg.exposeReasoning ? "passthrough" : "hidden"}`);
   const others = (Object.keys(cfg.providers) as Array<keyof typeof cfg.providers>)
     .filter((id) => id !== cfg.defaultProviderId && cfg.providers[id])
     .join(", ");
   if (others) {
-    // eslint-disable-next-line no-console
-    console.log(`registered:  ${others} (model-routed when client picks one of those ids)`);
+    lines.push(`registered:  ${others} (model-routed when client picks one of those ids)`);
   }
   if (cfg.adminEnabled) {
-    // eslint-disable-next-line no-console
-    console.log(`admin UI:    http://${cfg.host}:${cfg.port}/admin/`);
-    // eslint-disable-next-line no-console
-    console.log(`data dir:    ${cfg.dataDir}`);
+    lines.push(`admin UI:    http://${cfg.host}:${cfg.port}/admin/`);
+    lines.push(`data dir:    ${cfg.dataDir}`);
   } else {
-    // eslint-disable-next-line no-console
-    console.log(`admin UI:    disabled (--no-admin)`);
+    lines.push(`admin UI:    disabled (--no-admin)`);
   }
+
+  printBoxedBanner(lines);
   // eslint-disable-next-line no-console
   console.log("");
   // eslint-disable-next-line no-console
-  console.log(configSnippet({ host: cfg.host, port: cfg.port }, target));
+  console.log(colorizeSnippet(configSnippet({ host: cfg.host, port: cfg.port }, target)));
 }
 
 async function main(): Promise<void> {
