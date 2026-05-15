@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api } from "../api/client";
+import { api, type UpdateStatusResponse } from "../api/client";
 import i18n, { DEFAULT_LANG, SUPPORTED_LANGS, type SupportedLang } from "../i18n";
 
 export type ThemeMode = "dark" | "light" | "auto";
@@ -21,6 +21,14 @@ export interface AppConfig {
   lang: SupportedLang;
   settings: Record<string, string>;
   refresh: () => Promise<void>;
+  // Version status is fetched once on mount and after explicit user actions
+  // (Check now / Ignore). `null` until the first fetch resolves.
+  versionInfo: UpdateStatusResponse | null;
+  refreshVersion: () => Promise<void>;
+  // Forces a network round-trip on the backend (POST /admin/api/check-update)
+  // instead of serving the cached value. Used by the "Check now" button.
+  forceCheckVersion: () => Promise<void>;
+  setVersionInfo: (info: UpdateStatusResponse) => void;
 }
 
 const AppConfigContext = createContext<AppConfig | null>(null);
@@ -41,6 +49,7 @@ function detectSystemTheme(): ResolvedTheme {
 export function AppConfigProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => detectSystemTheme());
+  const [versionInfo, setVersionInfoState] = useState<UpdateStatusResponse | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -51,9 +60,32 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshVersion = useCallback(async () => {
+    try {
+      const info = await api.updateStatus();
+      setVersionInfoState(info);
+    } catch {
+      // version checks are advisory — keep the previous state on failure
+    }
+  }, []);
+
+  const forceCheckVersion = useCallback(async () => {
+    try {
+      const info = await api.checkUpdate();
+      setVersionInfoState(info);
+    } catch {
+      // ignore — UI still shows the last known state
+    }
+  }, []);
+
+  const setVersionInfo = useCallback((info: UpdateStatusResponse) => {
+    setVersionInfoState(info);
+  }, []);
+
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void refreshVersion();
+  }, [refresh, refreshVersion]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
@@ -80,8 +112,28 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
   }, [resolvedTheme]);
 
   const value = useMemo<AppConfig>(
-    () => ({ themeMode, resolvedTheme, lang, settings, refresh }),
-    [themeMode, resolvedTheme, lang, settings, refresh]
+    () => ({
+      themeMode,
+      resolvedTheme,
+      lang,
+      settings,
+      refresh,
+      versionInfo,
+      refreshVersion,
+      forceCheckVersion,
+      setVersionInfo,
+    }),
+    [
+      themeMode,
+      resolvedTheme,
+      lang,
+      settings,
+      refresh,
+      versionInfo,
+      refreshVersion,
+      forceCheckVersion,
+      setVersionInfo,
+    ]
   );
 
   return <AppConfigContext.Provider value={value}>{children}</AppConfigContext.Provider>;

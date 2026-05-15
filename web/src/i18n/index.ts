@@ -11,6 +11,7 @@ import zhSetup from "./locales/zh-CN/setup.json";
 import zhModels from "./locales/zh-CN/models.json";
 import zhCodexEnable from "./locales/zh-CN/codexEnable.json";
 import zhKeyBanner from "./locales/zh-CN/keyBanner.json";
+import zhUpdate from "./locales/zh-CN/update.json";
 import enCommon from "./locales/en-US/common.json";
 import enNav from "./locales/en-US/nav.json";
 import enSettings from "./locales/en-US/settings.json";
@@ -21,6 +22,7 @@ import enSetup from "./locales/en-US/setup.json";
 import enModels from "./locales/en-US/models.json";
 import enCodexEnable from "./locales/en-US/codexEnable.json";
 import enKeyBanner from "./locales/en-US/keyBanner.json";
+import enUpdate from "./locales/en-US/update.json";
 
 export const SUPPORTED_LANGS = ["zh-CN", "en-US"] as const;
 export type SupportedLang = (typeof SUPPORTED_LANGS)[number];
@@ -39,6 +41,7 @@ void i18n.use(initReactI18next).init({
       models: zhModels,
       codexEnable: zhCodexEnable,
       keyBanner: zhKeyBanner,
+      update: zhUpdate,
     },
     "en-US": {
       common: enCommon,
@@ -51,6 +54,7 @@ void i18n.use(initReactI18next).init({
       models: enModels,
       codexEnable: enCodexEnable,
       keyBanner: enKeyBanner,
+      update: enUpdate,
     },
   },
   lng: DEFAULT_LANG,
@@ -67,6 +71,7 @@ void i18n.use(initReactI18next).init({
     "models",
     "codexEnable",
     "keyBanner",
+    "update",
   ],
   interpolation: { escapeValue: false },
   returnEmptyString: false,

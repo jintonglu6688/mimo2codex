@@ -1,0 +1,35 @@
+{
+  "banner": {
+    "title": "新版本 v{{latest}} 可用（当前 v{{current}}）",
+    "actionUpdate": "立即更新并重启",
+    "actionShowCommand": "查看命令",
+    "actionIgnore": "忽略此版本",
+    "actionDismiss": "暂时关闭"
+  },
+  "modal": {
+    "title": "正在更新 mimo2codex",
+    "subtitle": "通过 {{method}} · 服务端会在更新完成后自动停止，请回到终端重新启动 mimo2codex。",
+    "running": "命令运行中…",
+    "doneOk": "更新成功（exit 0）。服务端正在停止，请在终端运行 `mimo2codex` 重启到新版。",
+    "doneFail": "更新失败（exit {{exitCode}}）。请查看上方日志或在终端手动重试。",
+    "errored": "更新过程出错：{{message}}",
+    "skipped": "未检测到自动更新方式。请在终端手动执行下面的命令：",
+    "close": "关闭",
+    "copyCommand": "复制命令"
+  },
+  "method": {
+    "npm-global": "npm 全局安装（npm i -g mimo2codex@latest）",
+    "git": "git 仓库（git pull + npm run build:all）",
+    "unknown": "未知（请手动更新）"
+  },
+  "command": {
+    "title": "更新命令",
+    "detected": "检测到的安装方式：{{method}}",
+    "copy": "复制",
+    "copied": "已复制",
+    "close": "关闭"
+  },
+  "footer": {
+    "updateAvailable": "有新版可用：v{{latest}}"
+  }
+}

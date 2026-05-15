@@ -23,6 +23,7 @@ import {
 
 import { api } from "./api/client";
 import { AppConfigProvider, useAppConfig } from "./contexts/AppConfigContext";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { Dashboard } from "./pages/Dashboard";
 import { Models } from "./pages/Models";
 import { Logs } from "./pages/Logs";
@@ -142,6 +143,7 @@ function Shell() {
             minHeight: 0,
           }}
         >
+          <UpdateBanner />
           <Routes>
             {MENU.map((m) => (
               <Route key={m.path} path={m.path} element={m.element} />
@@ -156,6 +158,8 @@ function Shell() {
 
 function AppFooter() {
   const { t } = useTranslation();
+  const { t: tUpdate } = useTranslation("update");
+  const { versionInfo } = useAppConfig();
   const [version, setVersion] = useState<string>("");
   useEffect(() => {
     api
@@ -166,12 +170,34 @@ function AppFooter() {
       });
   }, []);
   const year = new Date().getFullYear();
+  const showUpdateDot =
+    versionInfo?.hasUpdate &&
+    !versionInfo.preferences.effectivelyDismissed &&
+    !versionInfo.preferences.updateCheckDisabled;
   return (
     <AntFooter style={{ textAlign: "center", padding: "16px 24px" }}>
       <div>
         <strong>mimo2codex</strong>
-        {version && <span style={{ marginLeft: 6, opacity: 0.65 }}>v{version}</span>} · ©{" "}
-        {year} ·{" "}
+        {version && (
+          <span style={{ marginLeft: 6, opacity: 0.65 }}>
+            v{version}
+            {showUpdateDot && (
+              <span
+                title={tUpdate("footer.updateAvailable", { latest: versionInfo?.latest })}
+                style={{
+                  display: "inline-block",
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: "#faad14",
+                  marginLeft: 6,
+                  verticalAlign: "middle",
+                }}
+              />
+            )}
+          </span>
+        )}{" "}
+        · © {year} ·{" "}
         <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noreferrer">
           {t("footer.license")}
         </a>

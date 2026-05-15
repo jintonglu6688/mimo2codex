@@ -19,6 +19,14 @@ import {
   refreshDataDirExample,
 } from "./setup/initEnv.js";
 import { PROVIDER_LIST } from "./providers/registry.js";
+import {
+  DEFAULT_TTL_MS,
+  getCachedStatus,
+  refreshCacheInBackground,
+  type UpdateStatus,
+} from "./util/checkUpdate.js";
+import { runUpdate } from "./setup/runUpdate.js";
+import { printLogo } from "./util/logo.js";
 
 // Discover the data-dir path WITHOUT creating it. Used for print-config /
 // print-cc-switch subcommands so a one-shot snippet print doesn't have
@@ -45,6 +53,7 @@ const HELP = `mimo2codex v${VERSION} — local proxy: Codex Responses API → Ch
 USAGE
   mimo2codex [options]
   mimo2codex init
+  mimo2codex update
   mimo2codex print-config
   mimo2codex print-cc-switch
 
@@ -62,6 +71,8 @@ OPTIONS
                           (env: MIMO2CODEX_NO_ADMIN=1)
       --no-load-env       skip auto-loading <data-dir>/.env on startup
                           (default: auto-loaded if the file exists)
+      --no-update-check   skip the startup npm registry version check
+                          (env: MIMO2CODEX_NO_UPDATE_CHECK=1)
   -v, --verbose           log every request (env: MIMO2CODEX_VERBOSE=1)
   -V, --version           print version
   -h, --help              show this help
@@ -107,6 +118,9 @@ SUBCOMMANDS
                           template. Idempotent: refreshes .env.example, only creates
                           .env if absent. Run this once after install, edit .env, then
                           launch mimo2codex normally — keys auto-load on every start.
+  update                  detect the install method (npm-global vs git checkout) and
+                          run the matching update command, streaming output to your
+                          terminal. Exit code mirrors the underlying spawn.
   print-config            print ~/.codex/auth.json + config.toml snippets (default;
                           works for Codex CLI and desktop app)
   print-config --env-key  print env-var-based variant (Codex CLI only — desktop app
@@ -204,6 +218,106 @@ function runInitSubcommand(parsed: ReturnType<typeof parseArgv>): void {
   }
 }
 
+// ─── update-check helpers ──────────────────────────────────────────────────
+// Async prompt that resolves on either a key press or a timeout. Used to ask
+// the user y/n at startup when a newer version is in cache. Restores raw-mode
+// state on every exit path so the rest of the process keeps a sane stdin.
+function timedYesNoPrompt(question: string, timeoutMs: number): Promise<"y" | "n" | "timeout"> {
+  return new Promise((resolveOnce) => {
+    const stdin = process.stdin;
+    if (!stdin.isTTY) {
+      resolveOnce("timeout");
+      return;
+    }
+    // eslint-disable-next-line no-console
+    process.stdout.write(question);
+    const wasRaw = stdin.isRaw;
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding("utf8");
+    let settled = false;
+    const finish = (result: "y" | "n" | "timeout"): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      stdin.removeListener("data", onData);
+      stdin.setRawMode(wasRaw);
+      stdin.pause();
+      // print a newline so the next banner line starts on a fresh row
+      process.stdout.write("\n");
+      resolveOnce(result);
+    };
+    const onData = (chunk: string): void => {
+      const c = chunk.toLowerCase();
+      if (c === "") {
+        // Ctrl-C while we hold the prompt — let the user kill the process
+        finish("timeout");
+        process.exit(130);
+      }
+      if (c === "y") return finish("y");
+      if (c === "n" || c === "\r" || c === "\n") return finish("n");
+      // any other key: keep waiting
+    };
+    stdin.on("data", onData);
+    const timer = setTimeout(() => finish("timeout"), timeoutMs);
+  });
+}
+
+function shouldSkipUpdateCheck(
+  parsed: ReturnType<typeof parseArgv>,
+  env: NodeJS.ProcessEnv
+): boolean {
+  if (parsed.noUpdateCheck) return true;
+  if (env.MIMO2CODEX_NO_UPDATE_CHECK) return true;
+  return false;
+}
+
+async function maybePromptForUpdate(status: UpdateStatus): Promise<void> {
+  if (!status.hasUpdate || !status.latest) return;
+  const banner = `New version v${status.latest} available (current ${status.current}).`;
+  const stdinTTY = process.stdin.isTTY;
+  const stdoutTTY = process.stdout.isTTY;
+  if (!stdinTTY || !stdoutTTY) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[update] ${banner} Run \`mimo2codex update\` to install, or \`mimo2codex --no-update-check\` to silence.`
+    );
+    return;
+  }
+  const answer = await timedYesNoPrompt(
+    `${banner} Update now? [y/N] (auto-skip in 5s) `,
+    5000
+  );
+  if (answer === "y") {
+    const result = await runUpdate({
+      onLine: (line, stream) => {
+        // eslint-disable-next-line no-console
+        (stream === "stderr" ? console.error : console.log)(line);
+      },
+    });
+    process.exit(result.exitCode);
+  }
+  // n / timeout: continue startup, leaving banner visible
+}
+
+async function runUpdateSubcommand(): Promise<never> {
+  const result = await runUpdate({
+    onLine: (line, stream) => {
+      // eslint-disable-next-line no-console
+      (stream === "stderr" ? console.error : console.log)(line);
+    },
+  });
+  if (result.skipped) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `\nNo automated update path detected for this install. Run the suggested command manually:`
+    );
+    // eslint-disable-next-line no-console
+    console.log(`  ${result.command}`);
+  }
+  process.exit(result.exitCode);
+}
+
 function checkMimoHostMismatch(cfg: Config): string | null {
   // Catch the most common foot-gun: tp-* key sent at the pay-as-you-go host
   // (or sk-* key sent at the token-plan host) — usually because MIMO_BASE_URL
@@ -276,7 +390,7 @@ function printStartupBanner(
   console.log(configSnippet({ host: cfg.host, port: cfg.port }, target));
 }
 
-function main(): void {
+async function main(): Promise<void> {
   let parsed;
   try {
     parsed = parseArgv(process.argv.slice(2));
@@ -287,6 +401,7 @@ function main(): void {
   }
 
   if (parsed.showHelp) {
+    printLogo(VERSION);
     // eslint-disable-next-line no-console
     console.log(HELP);
     return;
@@ -297,10 +412,25 @@ function main(): void {
     return;
   }
 
+  // Logo prints for normal startup + init + update. Subcommands whose output
+  // is intended to be piped to a file (print-config / print-cc-switch) skip
+  // it so the resulting snippets stay clean.
+  const subcmd = parsed.positional[0];
+  if (subcmd !== "print-config" && subcmd !== "print-cc-switch") {
+    printLogo(VERSION);
+  }
+
   // `init` subcommand: bootstrap <data-dir>/.env + .env.example and exit.
   // Always idempotent; safe to re-run.
   if (parsed.positional[0] === "init") {
     runInitSubcommand(parsed);
+    return;
+  }
+
+  // `update` subcommand: detect install method, spawn the matching update
+  // command, stream output to terminal, exit with the spawn's exit code.
+  if (parsed.positional[0] === "update") {
+    await runUpdateSubcommand();
     return;
   }
 
@@ -432,6 +562,39 @@ function main(): void {
 
   printStartupBanner(cfg, resolveSnippetTarget(parsed.model), autoLoadedEnv);
 
+  // Update-check: gated by --no-update-check / env / settings. Strategy:
+  //   1. Read cached status synchronously (offline, instant). If it shows a
+  //      newer version, prompt the user (TTY only) before starting the server.
+  //   2. Fire-and-forget a background refresh so the next launch sees a fresh
+  //      cache. We never block startup waiting for the network.
+  // Use dataDirForLoader (not cfg.dataDir): this honors --data-dir even
+  // when --no-admin is passed, so opt-in-only users still get update prompts
+  // from their cache file. Falls back to empty when nothing's resolvable.
+  const updateCheckDataDir = dataDirForLoader || null;
+  if (!shouldSkipUpdateCheck(parsed, process.env) && updateCheckDataDir) {
+    const cached = getCachedStatus({ currentVersion: VERSION, dataDir: updateCheckDataDir });
+    // Cache age check: if it's stale or absent, kick a refresh in the
+    // background. The current process won't use the result; next launch will.
+    const isStale =
+      cached.checkedAt === null || Date.now() - cached.checkedAt >= DEFAULT_TTL_MS;
+    if (isStale) {
+      refreshCacheInBackground({
+        currentVersion: VERSION,
+        dataDir: updateCheckDataDir,
+      }).catch(() => {
+        /* swallow — version check must never affect server startup */
+      });
+    }
+    if (cached.hasUpdate) {
+      try {
+        await maybePromptForUpdate(cached);
+      } catch (err) {
+        // Prompt failures (e.g. raw-mode unsupported) should never block start
+        log.warn("update prompt failed", { error: (err as Error).message });
+      }
+    }
+  }
+
   const server = startServer(cfg);
   server.on("listening", () => {
     log.debug("server listening");
@@ -457,4 +620,8 @@ function main(): void {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
-main();
+main().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error(`fatal: ${(err as Error).message}`);
+  process.exit(1);
+});

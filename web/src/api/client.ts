@@ -337,7 +337,37 @@ export const api = {
   setCodexDir: (dir: string) =>
     request<CodexDirInfo>("PUT", "/codex-dir", { dir }),
   clearCodexDir: () => request<CodexDirInfo>("DELETE", "/codex-dir"),
+  updateStatus: () => request<UpdateStatusResponse>("GET", "/update-status"),
+  checkUpdate: () => request<UpdateStatusResponse>("POST", "/check-update"),
+  updatePreference: (body: { updateCheckDisabled?: boolean; ignoredVersion?: string | null }) =>
+    request<UpdateStatusResponse>("POST", "/update-preference", body),
+  // SSE-based update endpoint — returns the URL so callers can use EventSource
+  // directly (the shared `request` wrapper is JSON-only).
+  updateStreamUrl: () => `${BASE}/update`,
 };
+
+// /admin/api/update-status response. Backend computes `hasUpdate` after
+// comparing cached `latest` against the current version, and surfaces the
+// detected install method so the UI can pick the right copy-paste command.
+export interface UpdateStatusResponse {
+  current: string;
+  latest: string | null;
+  hasUpdate: boolean;
+  channel: "latest" | "beta";
+  checkedAt: number | null;
+  source: "cache" | "fresh" | "skipped";
+  method: "npm-global" | "git" | "unknown";
+  command: string;
+  rootDir: string;
+  preferences: {
+    updateCheckDisabled: boolean;
+    ignoredVersion: string | null;
+    // True iff the user has already pressed "ignore this version" for the
+    // currently-advertised version — UI hides the banner without forgetting
+    // about future newer versions.
+    effectivelyDismissed: boolean;
+  };
+}
 
 // /admin/api/codex-dir response. `source` tells the UI which layer of the
 // resolution chain produced `effective`, so it can show "default" / env /

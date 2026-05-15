@@ -50,6 +50,7 @@ export interface ParsedArgs {
   dataDir?: string;
   noAdmin?: boolean;
   noLoadEnv?: boolean;
+  noUpdateCheck?: boolean;
   positional: string[];
   showHelp: boolean;
   showVersion: boolean;
@@ -106,6 +107,9 @@ export function parseArgv(argv: string[]): ParsedArgs {
         break;
       case "--no-load-env":
         out.noLoadEnv = true;
+        break;
+      case "--no-update-check":
+        out.noUpdateCheck = true;
         break;
       case "--help":
       case "-h":

@@ -1,0 +1,35 @@
+{
+  "banner": {
+    "title": "New version v{{latest}} available (current v{{current}})",
+    "actionUpdate": "Update & restart",
+    "actionShowCommand": "Show command",
+    "actionIgnore": "Ignore this version",
+    "actionDismiss": "Dismiss"
+  },
+  "modal": {
+    "title": "Updating mimo2codex",
+    "subtitle": "Method: {{method}}. The server will stop automatically once the update finishes — re-launch `mimo2codex` from your terminal.",
+    "running": "Update in progress…",
+    "doneOk": "Update succeeded (exit 0). The server is shutting down — run `mimo2codex` in your terminal to start the new version.",
+    "doneFail": "Update failed (exit {{exitCode}}). Check the log above or retry from your terminal.",
+    "errored": "Update errored out: {{message}}",
+    "skipped": "No automated update path detected. Run this in your terminal:",
+    "close": "Close",
+    "copyCommand": "Copy command"
+  },
+  "method": {
+    "npm-global": "npm global install (npm i -g mimo2codex@latest)",
+    "git": "git checkout (git pull + npm run build:all)",
+    "unknown": "Unknown (manual update required)"
+  },
+  "command": {
+    "title": "Update command",
+    "detected": "Detected install method: {{method}}",
+    "copy": "Copy",
+    "copied": "Copied",
+    "close": "Close"
+  },
+  "footer": {
+    "updateAvailable": "New version available: v{{latest}}"
+  }
+}

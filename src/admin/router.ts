@@ -53,6 +53,14 @@ import {
   UpstreamError,
 } from "../upstream/openaiCompatClient.js";
 import type { ChatRequest, ResponsesRequest } from "../translate/types.js";
+import {
+  compareVersions,
+  getCachedStatus,
+  resolveStatus,
+  type UpdateStatus,
+} from "../util/checkUpdate.js";
+import { detectUpdateMethod } from "../setup/updateMethod.js";
+import { runUpdate } from "../setup/runUpdate.js";
 
 // Locate dist/web/ relative to THIS module's location, not process.cwd().
 // When mimo2codex is installed globally (`npm install -g`), the user invokes
@@ -861,7 +869,118 @@ async function handleApi(ctx: RouteContext): Promise<void> {
     }
   }
 
+  // ─── Update-check endpoints ─────────────────────────────────────────────
+  // Layered so the webui can: poll status without touching the network, force
+  // a fresh check on demand, kick off the actual update with streamed log
+  // output, and persist a "stop bugging me" preference.
+  if (req.method === "GET" && pathname === "/admin/api/update-status") {
+    return sendJson(res, 200, buildUpdateStatusPayload(cfg));
+  }
+
+  if (req.method === "POST" && pathname === "/admin/api/check-update") {
+    const version = parseCurrentVersion(cfg);
+    try {
+      const status = await resolveStatus({
+        currentVersion: version,
+        dataDir: cfg.dataDir || null,
+        ttlMs: 0, // user explicitly asked: always hit the network
+      });
+      return sendJson(res, 200, decorateStatus(status, cfg));
+    } catch (err) {
+      return sendError(res, 502, "network_failure", (err as Error).message);
+    }
+  }
+
+  if (req.method === "POST" && pathname === "/admin/api/update") {
+    // Stream the update's stdout/stderr to the browser via SSE. After the
+    // last frame, schedule a graceful shutdown so the user re-launches into
+    // the upgraded binary. The frontend shows a "please restart" message
+    // when the connection drops cleanly.
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-store");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+    const writeEvent = (event: string, data: unknown): void => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    try {
+      writeEvent("start", { ts: Date.now() });
+      const result = await runUpdate({
+        onLine: (line, stream) => writeEvent("line", { line, stream }),
+      });
+      writeEvent("done", {
+        exitCode: result.exitCode,
+        method: result.method,
+        skipped: result.skipped,
+      });
+      res.end();
+      // Only schedule self-shutdown on a successful update — keep the server
+      // alive on failure so the user can retry from the webui.
+      if (!result.skipped && result.exitCode === 0) {
+        log.info("update succeeded via webui — scheduling shutdown");
+        setTimeout(() => process.exit(0), 500).unref();
+      }
+    } catch (err) {
+      writeEvent("error", { message: (err as Error).message });
+      res.end();
+    }
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/admin/api/update-preference") {
+    type PrefBody = { updateCheckDisabled?: unknown; ignoredVersion?: unknown };
+    const body = await readJsonBody<PrefBody>(req);
+    if (typeof body.updateCheckDisabled === "boolean") {
+      setSetting("updateCheckDisabled", body.updateCheckDisabled ? "1" : "0");
+    }
+    if (typeof body.ignoredVersion === "string") {
+      setSetting("ignoredVersion", body.ignoredVersion);
+    } else if (body.ignoredVersion === null) {
+      deleteSetting("ignoredVersion");
+    }
+    return sendJson(res, 200, buildUpdateStatusPayload(cfg));
+  }
+
   return sendError(res, 404, "not_found", `no admin route for ${req.method} ${pathname}`);
+}
+
+// Decorate a raw UpdateStatus with method/command (for the "view command"
+// modal) and the user's persistent prefs (so the UI can hide banners they
+// already dismissed).
+function decorateStatus(status: UpdateStatus, _cfg: Config): Record<string, unknown> {
+  const method = detectUpdateMethod();
+  const disabled = getSetting("updateCheckDisabled") === "1";
+  const ignored = getSetting("ignoredVersion");
+  const effectivelyDismissed =
+    !!status.latest && ignored != null && compareVersions(status.latest, ignored) <= 0;
+  return {
+    ...status,
+    method: method.method,
+    command: method.command,
+    rootDir: method.rootDir,
+    preferences: {
+      updateCheckDisabled: disabled,
+      ignoredVersion: ignored,
+      effectivelyDismissed,
+    },
+  };
+}
+
+function parseCurrentVersion(cfg: Config): string {
+  return cfg.userAgent.startsWith("mimo2codex/")
+    ? cfg.userAgent.slice("mimo2codex/".length)
+    : cfg.userAgent;
+}
+
+function buildUpdateStatusPayload(cfg: Config): Record<string, unknown> {
+  const version = parseCurrentVersion(cfg);
+  const status = getCachedStatus({
+    currentVersion: version,
+    dataDir: cfg.dataDir || null,
+  });
+  return decorateStatus(status, cfg);
 }
 
 // Pull a short, human-readable text snippet out of an upstream chat /
