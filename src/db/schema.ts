@@ -79,4 +79,16 @@ ALTER TABLE chat_logs ADD COLUMN response_body TEXT;
 ALTER TABLE chat_logs ADD COLUMN tool_call_count INTEGER;
 `,
   },
+  {
+    // Capture upstream prompt-cache hits so the dashboard can plot a
+    // "cache hit ratio" trend alongside the token usage chart. MiMo and
+    // DeepSeek both report this as usage.prompt_tokens_details.cached_tokens
+    // (Chat Completions) / usage.input_tokens_details.cached_tokens
+    // (Responses); we already parse both fields in translate/* but never
+    // persisted them.
+    version: 3,
+    sql: `
+ALTER TABLE chat_logs ADD COLUMN cached_tokens INTEGER;
+`,
+  },
 ];

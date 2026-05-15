@@ -25,6 +25,7 @@ import {
 } from "../api/client";
 import { KeyStatusBanner } from "../components/KeyStatusBanner";
 import { TokenChart } from "../components/TokenChart";
+import { CacheHitChart } from "../components/CacheHitChart";
 
 const SETUP_BANNER_KEY = "m2c.setup-banner-dismissed";
 
@@ -377,6 +378,22 @@ export function Dashboard() {
       >
         {timeseries ? (
           <TokenChart data={timeseries} />
+        ) : (
+          <Typography.Text type="secondary">{t("chart.loading")}</Typography.Text>
+        )}
+      </Card>
+
+      <Card
+        title={t("cache.title")}
+        style={{ marginBottom: 16 }}
+        extra={
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {t("cache.subtitle")}
+          </Typography.Text>
+        }
+      >
+        {timeseries ? (
+          <CacheHitChart data={timeseries} />
         ) : (
           <Typography.Text type="secondary">{t("chart.loading")}</Typography.Text>
         )}

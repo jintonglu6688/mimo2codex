@@ -41,6 +41,15 @@
     "otherShort": "Others ({{count}})",
     "legendTitle": "Click to toggle {{label}}"
   },
+  "cache": {
+    "title": "Cache Hits",
+    "subtitle": "Token hit rate (upstream prompt cache)",
+    "windowSummary": "{{cached}} cached / {{prompt}} prompt",
+    "empty": "No prompt-token data in this window",
+    "tooltipCached": "Cached",
+    "tooltipPrompt": "Prompt",
+    "tooltipHitRate": "Hit rate"
+  },
   "byModel": {
     "title": "By model",
     "columns": {

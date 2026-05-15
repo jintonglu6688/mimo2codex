@@ -133,6 +133,7 @@ export interface LogRow {
   error_code: string | null;
   error_snippet: string | null;
   tool_call_count: number | null;
+  cached_tokens: number | null;
 }
 
 export interface LogDetail extends LogRow {
@@ -167,6 +168,9 @@ export interface TokenTimeseriesSeries {
   tokens: number[];
   prompt_tokens: number[];
   completion_tokens: number[];
+  // Upstream-reported prompt-cache hits per bucket. Zero-filled when the
+  // upstream returned no cache info (pre-v3 rows / providers without caching).
+  cached_tokens: number[];
   total: number;
 }
 

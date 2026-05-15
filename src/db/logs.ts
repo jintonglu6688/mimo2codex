@@ -21,6 +21,10 @@ export interface ChatLogEntry {
   request_body: string | null;
   response_body: string | null;
   tool_call_count: number | null;
+  // Upstream-reported prompt-cache hits in tokens (subset of prompt_tokens).
+  // Optional in the entry so the many error-path recordLog call sites that
+  // don't have usage data don't need to spell out cached_tokens: null.
+  cached_tokens?: number | null;
 }
 
 const MAX_SNIPPET = 500;
@@ -38,13 +42,13 @@ export function insertLog(entry: ChatLogEntry): void {
         endpoint, status_code, duration_ms,
         prompt_tokens, completion_tokens, total_tokens,
         stream, error_code, error_snippet,
-        request_body, response_body, tool_call_count
+        request_body, response_body, tool_call_count, cached_tokens
       ) VALUES (
         @ts, @request_id, @provider_id, @client_model, @upstream_model,
         @endpoint, @status_code, @duration_ms,
         @prompt_tokens, @completion_tokens, @total_tokens,
         @stream, @error_code, @error_snippet,
-        @request_body, @response_body, @tool_call_count
+        @request_body, @response_body, @tool_call_count, @cached_tokens
       )`
     )
     .run({
@@ -65,6 +69,7 @@ export function insertLog(entry: ChatLogEntry): void {
       request_body: entry.request_body,
       response_body: entry.response_body,
       tool_call_count: entry.tool_call_count,
+      cached_tokens: entry.cached_tokens ?? null,
     });
 }
 
@@ -95,6 +100,7 @@ export interface LogRow {
   error_code: string | null;
   error_snippet: string | null;
   tool_call_count: number | null;
+  cached_tokens: number | null;
 }
 
 export interface LogDetailRow extends LogRow {
@@ -105,7 +111,7 @@ export interface LogDetailRow extends LogRow {
 const LIST_COLUMNS =
   "id, ts, request_id, provider_id, client_model, upstream_model, " +
   "endpoint, status_code, duration_ms, prompt_tokens, completion_tokens, " +
-  "total_tokens, stream, error_code, error_snippet, tool_call_count";
+  "total_tokens, stream, error_code, error_snippet, tool_call_count, cached_tokens";
 
 export function queryLogs(filter: LogFilter = {}): LogRow[] {
   const where: string[] = [];
@@ -213,6 +219,10 @@ export interface TokenTimeseriesSeries {
   tokens: number[]; // same length as buckets, zero-filled
   prompt_tokens: number[];
   completion_tokens: number[];
+  // Upstream-reported prompt-cache hits per bucket (subset of prompt_tokens).
+  // Zero-filled when the upstream returned no cache data or the column was
+  // never populated (pre-v3 rows).
+  cached_tokens: number[];
   total: number; // sum across the window, for ranking
 }
 
@@ -284,7 +294,8 @@ export function aggregateTokensTimeseries(
               upstream_model,
               COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
               COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
-              COALESCE(SUM(total_tokens), 0) AS total_tokens
+              COALESCE(SUM(total_tokens), 0) AS total_tokens,
+              COALESCE(SUM(cached_tokens), 0) AS cached_tokens
        FROM chat_logs
        WHERE ts >= @since
        GROUP BY day, provider_id, upstream_model
@@ -297,6 +308,7 @@ export function aggregateTokensTimeseries(
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    cached_tokens: number;
   }>;
 
   // Pivot the long-format rows into per-model series with dense bucket arrays.
@@ -311,6 +323,7 @@ export function aggregateTokensTimeseries(
         tokens: new Array(buckets.length).fill(0),
         prompt_tokens: new Array(buckets.length).fill(0),
         completion_tokens: new Array(buckets.length).fill(0),
+        cached_tokens: new Array(buckets.length).fill(0),
         total: 0,
       };
       seriesMap.set(key, s);
@@ -320,6 +333,7 @@ export function aggregateTokensTimeseries(
     s.tokens[idx] = r.total_tokens;
     s.prompt_tokens[idx] = r.prompt_tokens;
     s.completion_tokens[idx] = r.completion_tokens;
+    s.cached_tokens[idx] = r.cached_tokens;
     s.total += r.total_tokens;
   }
 

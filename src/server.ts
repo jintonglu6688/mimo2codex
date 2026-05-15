@@ -117,12 +117,20 @@ function usageFromChatResponse(u: ChatUsage | undefined): {
   prompt_tokens: number | null;
   completion_tokens: number | null;
   total_tokens: number | null;
+  cached_tokens: number | null;
 } {
-  if (!u) return { prompt_tokens: null, completion_tokens: null, total_tokens: null };
+  if (!u)
+    return {
+      prompt_tokens: null,
+      completion_tokens: null,
+      total_tokens: null,
+      cached_tokens: null,
+    };
   return {
     prompt_tokens: u.prompt_tokens ?? null,
     completion_tokens: u.completion_tokens ?? null,
     total_tokens: u.total_tokens ?? null,
+    cached_tokens: u.prompt_tokens_details?.cached_tokens ?? null,
   };
 }
 
@@ -553,6 +561,7 @@ async function handleResponses(
       prompt_tokens: u?.input_tokens ?? null,
       completion_tokens: u?.output_tokens ?? null,
       total_tokens: u?.total_tokens ?? null,
+      cached_tokens: u?.input_tokens_details?.cached_tokens ?? null,
       error_code: streamError ? "stream_error" : rewriteLogFields.error_code,
       error_snippet: streamError ? streamError.message : rewriteLogFields.error_snippet,
       response_body: bodyForLog(pipeResult?.response),
@@ -634,6 +643,8 @@ async function handleResponsesPassthrough(
       const json = (await upstreamRes.json()) as Record<string, unknown>;
       sendJson(res, 200, json);
       const usage = (json.usage ?? {}) as Record<string, unknown>;
+      const cachedFromResponses =
+        (usage.input_tokens_details as Record<string, unknown> | undefined)?.cached_tokens;
       recordLog(cfg, {
         ...baseEntry,
         request_id: typeof json.id === "string" ? json.id : null,
@@ -643,6 +654,7 @@ async function handleResponsesPassthrough(
         completion_tokens:
           typeof usage.output_tokens === "number" ? usage.output_tokens : null,
         total_tokens: typeof usage.total_tokens === "number" ? usage.total_tokens : null,
+        cached_tokens: typeof cachedFromResponses === "number" ? cachedFromResponses : null,
         ...rewriteLogFields,
         response_body: bodyForLog(json),
         tool_call_count: null,

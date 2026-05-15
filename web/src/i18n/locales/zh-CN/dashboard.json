@@ -41,6 +41,15 @@
     "otherShort": "其他 ({{count}})",
     "legendTitle": "点击切换显示 {{label}}"
   },
+  "cache": {
+    "title": "缓存命中",
+    "subtitle": "Token 命中率（上游 prompt cache）",
+    "windowSummary": "命中 {{cached}} / 提示 {{prompt}}",
+    "empty": "该窗口内暂无 prompt token 数据",
+    "tooltipCached": "命中",
+    "tooltipPrompt": "提示",
+    "tooltipHitRate": "命中率"
+  },
   "byModel": {
     "title": "按模型统计",
     "columns": {

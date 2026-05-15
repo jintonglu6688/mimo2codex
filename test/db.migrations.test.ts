@@ -155,6 +155,54 @@ describe("chat_logs", () => {
     expect(rows[0].last_seen).toBe(2);
   });
 
+  it("v3 column: insertLog persists cached_tokens, queryLogs surfaces it, missing field defaults to null", () => {
+    insertLog({
+      ts: 600,
+      request_id: "c1",
+      provider_id: "mimo",
+      client_model: "mimo-v2.5-pro",
+      upstream_model: "mimo-v2.5-pro",
+      endpoint: "/v1/responses",
+      status_code: 200,
+      duration_ms: 5,
+      prompt_tokens: 100,
+      completion_tokens: 20,
+      total_tokens: 120,
+      stream: false,
+      error_code: null,
+      error_snippet: null,
+      request_body: null,
+      response_body: null,
+      tool_call_count: null,
+      cached_tokens: 80,
+    });
+    // Second row without cached_tokens — older callers / error paths.
+    insertLog({
+      ts: 601,
+      request_id: "c2",
+      provider_id: "mimo",
+      client_model: "mimo-v2.5-pro",
+      upstream_model: "mimo-v2.5-pro",
+      endpoint: "/v1/responses",
+      status_code: 200,
+      duration_ms: 5,
+      prompt_tokens: 100,
+      completion_tokens: 20,
+      total_tokens: 120,
+      stream: false,
+      error_code: null,
+      error_snippet: null,
+      request_body: null,
+      response_body: null,
+      tool_call_count: null,
+    });
+    const list = queryLogs({});
+    const cached = list.find((r) => r.request_id === "c1");
+    const uncached = list.find((r) => r.request_id === "c2");
+    expect(cached?.cached_tokens).toBe(80);
+    expect(uncached?.cached_tokens).toBeNull();
+  });
+
   it("v2 columns: insertLog persists request_body, response_body, tool_call_count and getLogById returns them", () => {
     insertLog({
       ts: 500,

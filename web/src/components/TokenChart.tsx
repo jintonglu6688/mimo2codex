@@ -157,12 +157,19 @@ function rollupSeries(
       }
       total += s.total;
     }
+    const cachedAcc = new Array(bucketCount).fill(0);
+    for (const s of rest) {
+      for (let i = 0; i < bucketCount; i++) {
+        cachedAcc[i] += s.cached_tokens?.[i] ?? 0;
+      }
+    }
     result.push({
       provider_id: "*",
       upstream_model: otherShort(rest.length),
       tokens,
       prompt_tokens: prompt,
       completion_tokens: completion,
+      cached_tokens: cachedAcc,
       total,
       label: otherLabel(rest.length),
       color: colors[colors.length - 1],
