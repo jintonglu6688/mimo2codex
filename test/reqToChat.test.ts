@@ -14,6 +14,7 @@ describe("reqToChat", () => {
       input: [],
     };
     const chat = reqToChat(req);
+    // 默认 opts.forceHighEffort=false → 不注 reasoning_effort。
     expect(chat).toEqual({
       model: "mimo-v2.5-pro",
       messages: [{ role: "system", content: "You are MiMo." }],
@@ -1058,6 +1059,66 @@ describe("reqToChat", () => {
       | { reasoning_content?: string }
       | undefined;
     expect(a?.reasoning_content).toBe("full version");
+  });
+});
+
+describe("reqToChat — reasoning.effort passthrough", () => {
+  it("passes Codex reasoning.effort 'high' through as chat.reasoning_effort", () => {
+    const req: ResponsesRequest = {
+      model: "sensenova-6.7-flash-lite",
+      input: [{ type: "message", role: "user", content: "hi" }],
+      reasoning: { effort: "high" },
+    } as ResponsesRequest;
+    const chat = reqToChat(req);
+    expect(chat.reasoning_effort).toBe("high");
+  });
+
+  it("'minimal' is mapped to 'low' (closest ChatRequest enum)", () => {
+    const req: ResponsesRequest = {
+      model: "any",
+      input: "hi",
+      reasoning: { effort: "minimal" },
+    } as ResponsesRequest;
+    const chat = reqToChat(req);
+    expect(chat.reasoning_effort).toBe("low");
+  });
+
+  it("when Codex omits reasoning AND forceHighEffort=false (default), do NOT inject effort", () => {
+    const req: ResponsesRequest = {
+      model: "any",
+      input: "hi",
+    } as ResponsesRequest;
+    const chat = reqToChat(req);
+    expect(chat.reasoning_effort).toBeUndefined();
+  });
+
+  it("forceHighEffort=true + Codex omits reasoning → inject 'high'", () => {
+    const req: ResponsesRequest = {
+      model: "any",
+      input: "hi",
+    } as ResponsesRequest;
+    const chat = reqToChat(req, { forceHighEffort: true });
+    expect(chat.reasoning_effort).toBe("high");
+  });
+
+  it("disableThinking=true + forceHighEffort=true → disableThinking wins, no effort injected", () => {
+    const req: ResponsesRequest = {
+      model: "any",
+      input: "hi",
+    } as ResponsesRequest;
+    const chat = reqToChat(req, { disableThinking: true, forceHighEffort: true });
+    expect(chat.reasoning_effort).toBeUndefined();
+    expect(chat.thinking).toEqual({ type: "disabled" });
+  });
+
+  it("Codex explicit effort takes precedence even when forceHighEffort=true", () => {
+    const req: ResponsesRequest = {
+      model: "any",
+      input: "hi",
+      reasoning: { effort: "low" },
+    } as ResponsesRequest;
+    const chat = reqToChat(req, { forceHighEffort: true });
+    expect(chat.reasoning_effort).toBe("low"); // 客户端意图优先于兜底
   });
 });
 

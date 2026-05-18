@@ -26,7 +26,7 @@ import {
 } from "./util/checkUpdate.js";
 import { runUpdate } from "./setup/runUpdate.js";
 import { printLogo } from "./util/logo.js";
-import { printBoxedBanner, colorizeSnippet } from "./util/cliBanner.js";
+import { printBoxedBanner } from "./util/cliBanner.js";
 
 // Discover the data-dir path WITHOUT creating it. Used for print-config /
 // print-cc-switch subcommands so a one-shot snippet print doesn't have
@@ -65,6 +65,9 @@ OPTIONS
       --api-key <key>     api key for the default provider (env varies — see below) — required
       --no-reasoning      hide reasoning_content from Codex (still re-injected for multi-turn quality)
       --reasoning         force reasoning passthrough (default)
+      --disable-thinking  globally skip upstream "thinking" mode (mimo/deepseek: thinking:disabled;
+                          sensenova/generic: reasoning_effort:"none"). Admin UI 也可配置；
+                          CLI flag 优先于 admin UI 设置. env: MIMO2CODEX_DISABLE_THINKING=1
       --data-dir <path>   admin sqlite + UI data directory (default: ~/.mimo2codex,
                           env: MIMO2CODEX_DATA_DIR)
       --no-admin          disable the local admin UI + sqlite logging
@@ -363,6 +366,12 @@ function printStartupBanner(
     );
   }
   lines.push(`reasoning:   ${cfg.exposeReasoning ? "passthrough" : "hidden"}`);
+  if (cfg.disableThinkingFromCli === true) {
+    lines.push(`thinking:    disabled (--disable-thinking)`);
+  } else if (cfg.disableThinkingFromCli === false) {
+    lines.push(`thinking:    forced on (CLI overrode admin setting)`);
+  }
+  // 未显式设 CLI flag 时不打印此行 —— 实际值由 admin UI 控制，每请求动态读 settings。
   const others = (Object.keys(cfg.providers) as Array<keyof typeof cfg.providers>)
     .filter((id) => id !== cfg.defaultProviderId && cfg.providers[id])
     .join(", ");
@@ -377,10 +386,24 @@ function printStartupBanner(
   }
 
   printBoxedBanner(lines);
+  // 不再在启动时把 ~/.codex/auth.json + config.toml 完整 snippet 打印到终端 ——
+  // 用户反馈太啰嗦。需要查具体配置请到 admin 控制台（Setup / 对接指引 页），
+  // 或运行 `mimo2codex print-config` / `print-cc-switch` 显式生成。
   // eslint-disable-next-line no-console
   console.log("");
-  // eslint-disable-next-line no-console
-  console.log(colorizeSnippet(configSnippet({ host: cfg.host, port: cfg.port }, target)));
+  if (cfg.adminEnabled) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `具体配置请到 admin 控制台查看： http://${cfg.host}:${cfg.port}/admin/`
+    );
+  } else {
+    // eslint-disable-next-line no-console
+    console.log(
+      `具体配置请运行 \`mimo2codex print-config\`（或 \`print-cc-switch\`）查看。`
+    );
+  }
+  // target 仅在 print-config / print-cc-switch subcommand 路径下用到，本函数已不再消费。
+  void target;
 }
 
 async function main(): Promise<void> {

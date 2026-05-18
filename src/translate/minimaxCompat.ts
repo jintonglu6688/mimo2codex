@@ -64,6 +64,30 @@ export interface MinimaxCompatFeatures {
    * 部分 GLM/Qwen-thinking 模型也采用 inline `<think>` 格式，按需打开即可。
    */
   extractThinkTags?: boolean;
+  /**
+   * 删 `response_format` 整个字段。SenseNova 6.7 Flash-Lite 等"严格 OpenAI 子集"
+   * 网关只列出官方支持的字段表，未列的字段一律拒收（其 6.7 Flash-Lite 文档表里没
+   * 出现 response_format）。Codex/Claude Code 在结构化输出场景会发 response_format，
+   * 需主动 strip。**不**纳入 `minimaxCompat: true` 一键预设白名单 —— MiniMax 实际
+   * 接受 response_format（其文档 chat.completions 列了），删了会丢 JSON 输出能力。
+   */
+  dropResponseFormat?: boolean;
+  /**
+   * 从 tools 数组里删掉 type 不是 "function" / "custom" 的条目。SenseNova 6.7 Flash-Lite
+   * 的 schema 只接受这俩 type（`field Tools[N].Type invalid, should be one of: function, custom`），
+   * 但 Claude Code / Codex 经常会塞 OpenAI 内置工具（`web_search` / `file_search` /
+   * `computer_use_preview` / `code_interpreter` 等），上游一刀切 400。
+   * 删了之后这类内置能力当然就用不了，但 chat + function tool 仍能跑。MiniMax 多数情况
+   * 走 chat 时也不发这些 type，所以默认不放进 `minimaxCompat: true` 一键预设。
+   */
+  dropNonFunctionTools?: boolean;
+  /**
+   * 删 `reasoning_effort` 整个字段。Kimi (Moonshot) 不识别此字段，靠 `thinking:{type:"enabled"}`
+   * 控制思考；如果客户端走 mimo2codex 时勾了"强制高强度思考"开关，reqToChat 会注 reasoning_effort
+   * "high"，对 Kimi 是未知字段（多数情况忽略，但保守起见 strip 掉避免上游严格校验时 400）。
+   * 同时 strip 客户端可能误传的值。**不**纳入 `minimaxCompat: true` 一键预设。
+   */
+  dropReasoningEffort?: boolean;
 }
 
 // minimaxCompat: true 默认包揽的子开关白名单。把潜在副作用大的开关
@@ -136,6 +160,27 @@ export function applyMinimaxCompat(
   // 6. 合并 system 消息为单条前置
   if (isOn(features, "mergeSystemMessages") && Array.isArray(chat.messages)) {
     mergeSystemMessagesInPlace(chat.messages as ChatMessage[]);
+  }
+
+  // 7. 删 response_format（SenseNova 6.7 Flash-Lite 等不接受该字段的网关）
+  if (isOn(features, "dropResponseFormat")) {
+    delete (chat as { response_format?: unknown }).response_format;
+  }
+
+  // 8. 过滤非 function/custom 的 tool（SenseNova 6.7 Flash-Lite 等只认这俩 type）
+  if (isOn(features, "dropNonFunctionTools") && Array.isArray(chat.tools)) {
+    chat.tools = (chat.tools as ChatTool[]).filter(
+      (t) => t && (t.type === "function" || (t.type as string) === "custom"),
+    );
+    // 全删空了就把 tools 字段一起删，避免上游对空数组报错
+    if (chat.tools.length === 0) {
+      delete (chat as { tools?: unknown }).tools;
+    }
+  }
+
+  // 9. 删 reasoning_effort（Kimi 等不识别该字段；靠 thinking:{enabled/disabled} 控制思考）
+  if (isOn(features, "dropReasoningEffort")) {
+    delete (chat as { reasoning_effort?: unknown }).reasoning_effort;
   }
 
   return chat;

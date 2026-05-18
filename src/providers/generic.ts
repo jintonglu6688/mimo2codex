@@ -4,6 +4,11 @@ import {
   applyMinimaxCompat,
   type MinimaxCompatFeatures,
 } from "../translate/minimaxCompat.js"; // minimax-compat: 后处理 sanitizer
+import {
+  applyEnhanceErrorPreset,
+  PROVIDER_PRESETS,
+  type ProviderPresetId,
+} from "./presets.js";
 import type {
   PreprocessCtx,
   Provider,
@@ -33,6 +38,13 @@ export interface GenericProviderSpec {
   features?: {
     webSearch?: boolean;
     forceParallelToolCalls?: boolean;
+    /**
+     * 选填。命中预设时（"sensenova" / "minimax"）generic 的 enhanceError hook 会用
+     * src/providers/presets.ts 中内置的硬编码诊断翻译表把上游模糊化的 400 翻成
+     * 可读 hint（比如 SenseNova 的 "Errors in message queue response"）。默认 unset
+     * → 行为与之前完全一致（hook 返回 null）。
+     */
+    enhanceErrorPreset?: ProviderPresetId;
   } & MinimaxCompatFeatures; // minimax-compat: 把 sanitizer 的子开关合并进 features 命名空间
   docsUrl?: string;
   // minimax-compat: 当 models 为空且本 provider 是默认 provider 时，让 resolveModel
@@ -43,6 +55,30 @@ export interface GenericProviderSpec {
 }
 
 const RESERVED_IDS = new Set(["mimo", "deepseek"]);
+
+// 当 features.enhanceErrorPreset 命中已知厂商预设时，把 preset.recommendedSpec.features
+// 中**缺失**的字段补到运行时 features 上。用户已显式配置的字段不会被覆盖（"" / false 也算
+// 显式，因为 genericLoader 在 parse 时只在字段为对应类型时才放进 store）。
+//
+// 这条兜底的存在意义：在新增 sanitizer 子开关后，老 providers.json 的 features 块不带这些
+// 字段，但用户选过 `enhanceErrorPreset: "sensenova"` 已经明确表态"我要 sensenova 整套保护"。
+// 老配置无需手改 providers.json，重启即享受新开关。前端 UI 仍按 providers.json 原文显示 ——
+// 已显式存的字段一致；新字段在 UI 显示为未勾，但运行时实际生效（这是可接受的最小不一致）。
+function augmentFeaturesWithPreset(
+  features: NonNullable<GenericProviderSpec["features"]>,
+): NonNullable<GenericProviderSpec["features"]> {
+  if (!features.enhanceErrorPreset) return features;
+  const preset = PROVIDER_PRESETS.find((p) => p.id === features.enhanceErrorPreset);
+  if (!preset) return features;
+  const out = { ...features };
+  for (const [k, v] of Object.entries(preset.recommendedSpec.features)) {
+    if (k === "enhanceErrorPreset") continue;
+    if ((out as Record<string, unknown>)[k] === undefined) {
+      (out as Record<string, unknown>)[k] = v;
+    }
+  }
+  return out;
+}
 
 export class GenericProviderSpecError extends Error {
   constructor(message: string) {
@@ -87,7 +123,8 @@ export function createGenericProvider(spec: GenericProviderSpec): Provider {
   const declaredModels: readonly ProviderModel[] = spec.models ?? [];
   const hasDeclaredModels = declaredModels.length > 0;
   const wireApi = spec.wireApi ?? "chat";
-  const features = spec.features ?? {};
+  // 用户写在 providers.json 的原始 features。下面 augment 一次得到"运行时"用的版本。
+  const features = augmentFeaturesWithPreset(spec.features ?? {});
 
   return {
     id: spec.id,
@@ -128,19 +165,29 @@ export function createGenericProvider(spec: GenericProviderSpec): Provider {
         forceParallelToolCalls: !!features.forceParallelToolCalls,
         enableWebSearch: !!features.webSearch,
         imageDropDir: ctx.dataDir,
+        disableThinking: ctx.disableThinking,
+        forceHighEffort: ctx.forceHighEffort,
       });
-      // Generic OpenAI-compat upstreams don't understand MiMo's `thinking`
-      // family. Strip pre-emptively (reqToChat doesn't emit them, but a
-      // future caller might).
+      // Generic OpenAI-compat upstreams don't understand MiMo's `thinking` family —
+      // strip it. 然后**自己**翻成 sensenova 等接受的 reasoning_effort:"none"，
+      // 因为 reqToChat 只发标准 thinking 信号、不知道下游是谁。
       delete chat.thinking;
       delete chat.enable_thinking;
+      if (ctx.disableThinking) {
+        chat.reasoning_effort = "none";
+      }
       return applyMinimaxCompat(chat, features); // minimax-compat: 关闭时是恒等
     },
 
-    preprocessChat(req: ChatRequest, _ctx: PreprocessCtx): ChatRequest {
+    preprocessChat(req: ChatRequest, ctx: PreprocessCtx): ChatRequest {
       const out = { ...req };
       delete out.thinking;
       delete out.enable_thinking;
+      if (ctx.disableThinking) {
+        // chat completions 路径：直接覆盖 reasoning_effort 表达"关思考"。
+        // sensenova 接受 "none"；其他 generic 上游可能不识别但通常忽略未知值。
+        out.reasoning_effort = "none";
+      }
       return applyMinimaxCompat(out, features); // minimax-compat: 关闭时是恒等
     },
 
@@ -151,7 +198,11 @@ export function createGenericProvider(spec: GenericProviderSpec): Provider {
       return req;
     },
 
-    enhanceError(_ctx): ProviderEnhancedError | null {
+    enhanceError({ status, snippet }): ProviderEnhancedError | null {
+      // 未设 enhanceErrorPreset → 行为与之前完全一致（return null）。
+      if (features.enhanceErrorPreset) {
+        return applyEnhanceErrorPreset(features.enhanceErrorPreset, status, snippet);
+      }
       return null;
     },
 

@@ -95,6 +95,14 @@ export interface GenericProviderSpec {
     dropParallelToolCalls?: boolean;
     mergeSystemMessages?: boolean;
     extractThinkTags?: boolean;
+    // SenseNova 6.7 Flash-Lite 等"严格 OpenAI 子集"网关不接受 response_format。
+    dropResponseFormat?: boolean;
+    // SenseNova 等只接受 tools[].type ∈ {function, custom}；过滤 OpenAI 内置 tool。
+    dropNonFunctionTools?: boolean;
+    // Kimi 不识别 reasoning_effort，靠 thinking:{enabled/disabled} 控制思考；strip 该字段。
+    dropReasoningEffort?: boolean;
+    // 选填预设 id，让 generic provider 复用 builtin 的"友好错误翻译"能力。
+    enhanceErrorPreset?: "sensenova" | "minimax" | "kimi";
   };
   docsUrl?: string;
   // minimax-compat: 顶层开关。models: [] 时让 resolveModel 返回 null，
@@ -110,6 +118,26 @@ export interface GenericProvidersResponse {
   editable: boolean;
   notice?: string;
   error?: string;
+}
+
+// 已知厂商预设元数据。镜像 src/providers/presets.ts 的 ProviderPreset 结构。
+// admin UI 用 matchBaseUrl / matchModelPrefix 判断用户在编辑 generic provider 时
+// 是否命中已知厂商，命中则自动套用 recommendedSpec.features。
+export interface ProviderPresetClient {
+  id: "minimax" | "sensenova" | "kimi";
+  displayName: string;
+  matchBaseUrl: string[];
+  matchModelPrefix: string[];
+  recommendedSpec: {
+    baseUrl: string;
+    defaultModel: string;
+    docsUrl: string;
+    features: Record<string, boolean | string>;
+  };
+}
+
+export interface ProviderPresetsResponse {
+  presets: ProviderPresetClient[];
 }
 
 export interface ModelRow {
@@ -314,6 +342,19 @@ export const api = {
       "/generic-providers",
       { providers }
     ),
+  providerPresets: () =>
+    request<ProviderPresetsResponse>("GET", "/provider-presets"),
+  thinkingState: () =>
+    request<{
+      effective: boolean;
+      cliOverride: boolean | null;
+      setting: boolean;
+      forceHighEffort: boolean;
+    }>("GET", "/thinking-state"),
+  setThinkingDisabled: (disabled: boolean) =>
+    request<{ ok: boolean }>("PUT", "/thinking-state", { disabled }),
+  setForceHighEffort: (forceHighEffort: boolean) =>
+    request<{ ok: boolean }>("PUT", "/thinking-state", { forceHighEffort }),
   codexState: () => request<CodexState>("GET", "/codex-state"),
   codexTargets: () => request<CodexTargetsResponse>("GET", "/codex-targets"),
   codexApply: (body: { providerId: string; modelId: string }) =>

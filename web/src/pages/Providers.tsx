@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Collapse,
   Form,
   Input,
   InputNumber,
@@ -30,6 +31,7 @@ import {
   type GenericProviderModelSpec,
   type GenericProviderSpec,
   type GenericProvidersResponse,
+  type ProviderPresetClient,
 } from "../api/client";
 
 // Built-in provider ids — the user cannot create generics with these.
@@ -48,6 +50,11 @@ interface FormValues extends GenericProviderSpec {
   featDropParallelToolCalls: boolean;
   featMergeSystemMessages: boolean;
   featExtractThinkTags: boolean;
+  featDropResponseFormat: boolean;
+  featDropNonFunctionTools: boolean;
+  featDropReasoningEffort: boolean;
+  // 单选 "" / "sensenova" / "minimax" / "kimi"。"" → 写回时不写字段。
+  featEnhanceErrorPreset: "" | "sensenova" | "minimax" | "kimi" | "kimi";
   // minimax-compat: 顶层 forceDefaultModel 是非 features 字段，单独平铺也是为了表单绑定方便。
   featForceDefaultModel: boolean;
 }
@@ -74,6 +81,10 @@ function emptyFormValues(): FormValues {
     featDropParallelToolCalls: false,
     featMergeSystemMessages: false,
     featExtractThinkTags: false,
+    featDropResponseFormat: false,
+    featDropNonFunctionTools: false,
+    featDropReasoningEffort: false,
+    featEnhanceErrorPreset: "",
     featForceDefaultModel: false,
     docsUrl: "",
   };
@@ -100,6 +111,10 @@ function specToFormValues(spec: GenericProviderSpec): FormValues {
       dropParallelToolCalls: !!spec.features?.dropParallelToolCalls,
       mergeSystemMessages: !!spec.features?.mergeSystemMessages,
       extractThinkTags: !!spec.features?.extractThinkTags,
+      dropResponseFormat: !!spec.features?.dropResponseFormat,
+      dropNonFunctionTools: !!spec.features?.dropNonFunctionTools,
+      dropReasoningEffort: !!spec.features?.dropReasoningEffort,
+      enhanceErrorPreset: spec.features?.enhanceErrorPreset,
     },
     forceParallelToolCalls: !!spec.features?.forceParallelToolCalls,
     featWebSearch: !!spec.features?.webSearch,
@@ -111,6 +126,15 @@ function specToFormValues(spec: GenericProviderSpec): FormValues {
     featDropParallelToolCalls: !!spec.features?.dropParallelToolCalls,
     featMergeSystemMessages: !!spec.features?.mergeSystemMessages,
     featExtractThinkTags: !!spec.features?.extractThinkTags,
+    featDropResponseFormat: !!spec.features?.dropResponseFormat,
+    featDropNonFunctionTools: !!spec.features?.dropNonFunctionTools,
+    featDropReasoningEffort: !!spec.features?.dropReasoningEffort,
+    featEnhanceErrorPreset:
+      spec.features?.enhanceErrorPreset === "sensenova" ||
+      spec.features?.enhanceErrorPreset === "minimax" ||
+      spec.features?.enhanceErrorPreset === "kimi"
+        ? spec.features.enhanceErrorPreset
+        : "",
     featForceDefaultModel: !!spec.forceDefaultModel,
     docsUrl: spec.docsUrl ?? "",
   };
@@ -130,7 +154,8 @@ function formValuesToSpec(form: FormValues): GenericProviderSpec {
     .map((m) => ({ ...m, id: (m.id ?? "").trim() }))
     .filter((m) => m.id);
   if (models.length > 0) out.models = models;
-  const features: Record<string, boolean> = {};
+  // features 同时承载 boolean 子开关与 string 字段（enhanceErrorPreset），用 union 类型。
+  const features: Record<string, boolean | string> = {};
   if (form.forceParallelToolCalls) features.forceParallelToolCalls = true;
   if (form.featWebSearch) features.webSearch = true;
   // minimax-compat: 6 个子开关 + 1 个一键预设。开关默认 false → 写入时只在 true 时落盘
@@ -143,7 +168,14 @@ function formValuesToSpec(form: FormValues): GenericProviderSpec {
   if (form.featDropParallelToolCalls) features.dropParallelToolCalls = true;
   if (form.featMergeSystemMessages) features.mergeSystemMessages = true;
   if (form.featExtractThinkTags) features.extractThinkTags = true;
-  if (Object.keys(features).length > 0) out.features = features;
+  if (form.featDropResponseFormat) features.dropResponseFormat = true;
+  if (form.featDropNonFunctionTools) features.dropNonFunctionTools = true;
+  if (form.featDropReasoningEffort) features.dropReasoningEffort = true;
+  if (form.featEnhanceErrorPreset) features.enhanceErrorPreset = form.featEnhanceErrorPreset;
+  if (Object.keys(features).length > 0) {
+    // GenericProviderSpec.features 期望具体字段类型，运行时这里就是匹配的，断言收口。
+    out.features = features as GenericProviderSpec["features"];
+  }
   // minimax-compat: 顶层 forceDefaultModel
   if (form.featForceDefaultModel) out.forceDefaultModel = true;
   if (form.docsUrl?.trim()) out.docsUrl = form.docsUrl.trim();
@@ -163,6 +195,9 @@ export function Providers() {
     | null
   >(null);
   const [rawEditor, setRawEditor] = useState<string | null>(null);
+  // 已知厂商预设，仅用于在 ProviderFormModal 里做"输入命中即自动套用 features"。
+  // 加载失败不阻塞页面 —— 预设缺失只是失去自动化便利，手动配置仍可用。
+  const [presets, setPresets] = useState<ProviderPresetClient[]>([]);
 
   async function load() {
     try {
@@ -176,6 +211,13 @@ export function Providers() {
 
   useEffect(() => {
     void load();
+  }, []);
+
+  useEffect(() => {
+    api
+      .providerPresets()
+      .then((r) => setPresets(r.presets))
+      .catch(() => {/* 静默 */});
   }, []);
 
   async function save(updated: GenericProviderSpec[]) {
@@ -475,6 +517,7 @@ export function Providers() {
         <ProviderFormModal
           mode={editing.mode}
           initialValues={editing.values}
+          presets={presets}
           onCancel={() => setEditing(null)}
           onSubmit={commitForm}
         />
@@ -492,20 +535,200 @@ export function Providers() {
   );
 }
 
+// 列出所有 feature 复选框字段 —— watcher 用它判断"用户是否已勾过任何 feature"
+// （已勾过则不自动覆盖），以及 clearAutoApplied 用它一次性还原。
+const FEATURE_BOOLEAN_KEYS: Array<keyof FormValues> = [
+  "forceParallelToolCalls",
+  "featWebSearch",
+  "featMinimaxCompat",
+  "featDropNullStrict",
+  "featDropNullContent",
+  "featDropToolChoiceAuto",
+  "featDropStreamOptions",
+  "featDropParallelToolCalls",
+  "featMergeSystemMessages",
+  "featExtractThinkTags",
+  "featDropResponseFormat",
+  "featDropNonFunctionTools",
+  "featDropReasoningEffort",
+  "featForceDefaultModel",
+];
+
+// 只看 sanitizer boolean 开关 —— enhanceErrorPreset 是"分类标签"而非 sanitizer，
+// 排除它，否则用户主动从单选切到 sensenova/minimax 时这里就 true 了，下面的
+// preset watcher 永远套不上 features。
+function hasUserCustomizedFeatures(v: Partial<FormValues>): boolean {
+  for (const k of FEATURE_BOOLEAN_KEYS) {
+    if (v[k]) return true;
+  }
+  return false;
+}
+
+// 把 preset.recommendedSpec.features (后端字段命名) 映射成 FormValues 里的 feat* 平铺字段。
+function mapPresetFeaturesToFormFlags(
+  features: Record<string, boolean | string>,
+): Partial<FormValues> {
+  const patch: Partial<FormValues> = {};
+  if (typeof features.forceParallelToolCalls === "boolean")
+    patch.forceParallelToolCalls = features.forceParallelToolCalls;
+  if (typeof features.webSearch === "boolean") patch.featWebSearch = features.webSearch;
+  if (typeof features.minimaxCompat === "boolean") patch.featMinimaxCompat = features.minimaxCompat;
+  if (typeof features.dropNullStrict === "boolean") patch.featDropNullStrict = features.dropNullStrict;
+  if (typeof features.dropNullContent === "boolean") patch.featDropNullContent = features.dropNullContent;
+  if (typeof features.dropToolChoiceAuto === "boolean")
+    patch.featDropToolChoiceAuto = features.dropToolChoiceAuto;
+  if (typeof features.dropStreamOptions === "boolean")
+    patch.featDropStreamOptions = features.dropStreamOptions;
+  if (typeof features.dropParallelToolCalls === "boolean")
+    patch.featDropParallelToolCalls = features.dropParallelToolCalls;
+  if (typeof features.mergeSystemMessages === "boolean")
+    patch.featMergeSystemMessages = features.mergeSystemMessages;
+  if (typeof features.extractThinkTags === "boolean")
+    patch.featExtractThinkTags = features.extractThinkTags;
+  if (typeof features.dropResponseFormat === "boolean")
+    patch.featDropResponseFormat = features.dropResponseFormat;
+  if (typeof features.dropNonFunctionTools === "boolean")
+    patch.featDropNonFunctionTools = features.dropNonFunctionTools;
+  if (typeof features.dropReasoningEffort === "boolean")
+    patch.featDropReasoningEffort = features.dropReasoningEffort;
+  if (
+    features.enhanceErrorPreset === "sensenova" ||
+    features.enhanceErrorPreset === "minimax" ||
+    features.enhanceErrorPreset === "kimi"
+  ) {
+    patch.featEnhanceErrorPreset = features.enhanceErrorPreset;
+  }
+  return patch;
+}
+
+function matchPresetClient(
+  presets: readonly ProviderPresetClient[],
+  baseUrl: string,
+  model: string,
+): ProviderPresetClient | null {
+  const bu = (baseUrl || "").toLowerCase();
+  const m = (model || "").toLowerCase();
+  for (const p of presets) {
+    if (p.matchBaseUrl.some((s) => bu.includes(s.toLowerCase()))) return p;
+  }
+  for (const p of presets) {
+    if (p.matchModelPrefix.some((s) => m.startsWith(s.toLowerCase()))) return p;
+  }
+  return null;
+}
+
 function ProviderFormModal({
   mode,
   initialValues,
+  presets,
   onCancel,
   onSubmit,
 }: {
   mode: "create" | "edit";
   initialValues: FormValues;
+  presets: ProviderPresetClient[];
   onCancel: () => void;
   onSubmit: (values: FormValues) => Promise<void>;
 }) {
   const { t } = useTranslation("providers");
   const { t: tCommon } = useTranslation("common");
   const [form] = Form.useForm<FormValues>();
+  // autoApplied: 显示哪个预设刚被自动套用（null 表示未套用 / 已清除）。
+  const [autoApplied, setAutoApplied] = useState<string | null>(null);
+
+  // Radio 当前值用 React useState 控制 —— 不用 Form.useWatch，因为脱离 Form.Item 的字段，
+  // setFieldsValue 写入后 useWatch 在 rc-field-form 内部不一定能感知到（之前症状："切到
+  // sensenova 后 features checkbox 套上了但 Radio 一直 none 高亮"，正是这个原因）。
+  // useState 是 React 自己的 setter，写完立刻在下次 render 生效，没有内部状态机干扰。
+  // form store 仍通过 setFieldsValue 同步，submit 路径走 hidden Form.Item 让 validateFields
+  // 能拿到该字段，与既有 formValuesToSpec 接口保持兼容。
+  const [presetRadioValue, setPresetRadioValue] = useState<"" | "sensenova" | "minimax" | "kimi">(
+    (initialValues.featEnhanceErrorPreset ?? "") as "" | "sensenova" | "minimax" | "kimi",
+  );
+  // "高级（细粒度兼容子开关）"折叠状态。自动跟随预设：none → 展开，预设 → 折叠；
+  // 用户也可手动展开/收起；切换预设时强制同步（覆盖手动 state，因为切预设是清零信号）。
+  const [advancedExpanded, setAdvancedExpanded] = useState<boolean>(
+    presetRadioValue === "",
+  );
+  useEffect(() => {
+    setAdvancedExpanded(presetRadioValue === "");
+  }, [presetRadioValue]);
+
+  // Watcher A：监听 baseUrl / defaultModel，命中已知厂商预设 + 当前 features 全空 → 自动套用。
+  // create 与 edit 都触发：用户偏好"帮老配置跟上推荐"。hasUserCustomizedFeatures 保护，
+  // 已经勾过任何 feature 的存量配置不会被覆盖。
+  const watchedBaseUrl = Form.useWatch("baseUrl", form);
+  const watchedModel = Form.useWatch("defaultModel", form);
+  useEffect(() => {
+    if (!presets.length) return;
+    const preset = matchPresetClient(presets, watchedBaseUrl ?? "", watchedModel ?? "");
+    if (!preset) {
+      // 改成不命中的值 → 只清 Alert，不还原已套字段（避免抖动；用户可点 Alert 上的清除按钮）。
+      setAutoApplied(null);
+      return;
+    }
+    const current = form.getFieldsValue();
+    if (hasUserCustomizedFeatures(current)) return;
+    form.setFieldsValue(mapPresetFeaturesToFormFlags(preset.recommendedSpec.features));
+    setAutoApplied(preset.displayName);
+    // 同步给 Radio 的 useState（form.setFieldsValue 写 store 但 Radio value 来自 useState）
+    const presetId = preset.recommendedSpec.features.enhanceErrorPreset;
+    if (presetId === "sensenova" || presetId === "minimax" || presetId === "kimi") {
+      setPresetRadioValue(presetId);
+    }
+  }, [watchedBaseUrl, watchedModel, presets, form]);
+
+  // Radio onChange：useState 主管 UI，setFieldsValue 同步 form store
+  function onPresetRadioChange(newVal: string): void {
+    const v: "" | "sensenova" | "minimax" | "kimi" =
+      newVal === "sensenova" || newVal === "minimax" || newVal === "kimi" ? newVal : "";
+    // 1. 立即更新 useState（Radio 高亮立刻切换，无中间态）
+    setPresetRadioValue(v);
+    // 2. 同步 form store（hidden Form.Item 让 validateFields 也能拿到）
+    form.setFieldsValue({ featEnhanceErrorPreset: v });
+
+    if (v === "") {
+      setAutoApplied(null);
+      return;
+    }
+    const preset = presets.find((p) => p.id === v);
+    if (!preset) {
+      setAutoApplied(null);
+      return;
+    }
+
+    // 3. 清"预设管理范围"内字段，防止 sensenova → minimax 残留 sensenova 的勾。
+    // preset 范围 = 所有已知 preset 的 patch 字段并集；不影响 preset 范围外字段
+    // (forceParallelToolCalls / featForceDefaultModel 等用户独立配置)。
+    const presetManagedKeys = new Set<keyof FormValues>();
+    for (const p of presets) {
+      const flat = mapPresetFeaturesToFormFlags(p.recommendedSpec.features);
+      for (const k of Object.keys(flat) as Array<keyof FormValues>) {
+        if (k === "featEnhanceErrorPreset") continue;
+        presetManagedKeys.add(k);
+      }
+    }
+    const reset: Partial<FormValues> = {};
+    for (const k of presetManagedKeys) {
+      (reset as Record<string, unknown>)[k] = false;
+    }
+
+    // 4. 套新 preset。触发源字段不回写 —— 第 2 步已经写好。
+    const patch = mapPresetFeaturesToFormFlags(preset.recommendedSpec.features);
+    delete patch.featEnhanceErrorPreset;
+    form.setFieldsValue({ ...reset, ...patch });
+    setAutoApplied(preset.displayName);
+  }
+
+  function clearAutoApplied(): void {
+    const reset: Partial<FormValues> = { featEnhanceErrorPreset: "" };
+    for (const k of FEATURE_BOOLEAN_KEYS) {
+      (reset as Record<string, unknown>)[k] = false;
+    }
+    form.setFieldsValue(reset);
+    setPresetRadioValue(""); // Radio 的 useState 也要同步还原
+    setAutoApplied(null);
+  }
 
   const title =
     mode === "create"
@@ -641,91 +864,175 @@ function ProviderFormModal({
           </Space>
         </Form.Item>
 
-        {/* minimax-compat: 严格 OpenAI 兼容预设。命名以 MiniMax 首位受益者命名，
-            但任何拒绝 strict:null / content:null / stream_options 等字段的上游都能用。 */}
-        <Form.Item label={t("form.fields.strictCompat")}>
+        {/* 厂商快捷预设：放在最上面。选 sensenova / minimax 会做两件事 ——
+            ① 一键勾上下面"高级"区里的推荐细粒度子开关
+            ② 上游模糊化 400 翻译成诊断 hint */}
+        <Form.Item label={t("form.fields.enhanceErrorPresetTitle")}>
           <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-            {t("form.fields.strictCompatHint")}
+            {t("form.fields.enhanceErrorPresetSub")}
           </Typography.Paragraph>
-          <Space direction="vertical">
-            <Form.Item name="featMinimaxCompat" valuePropName="checked" noStyle>
-              <Checkbox>
-                <strong>{t("form.fields.minimaxCompat")}</strong>{" "}
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  · {t("form.fields.minimaxCompatSub")}
-                </Typography.Text>
-              </Checkbox>
-            </Form.Item>
-            <Form.Item name="featForceDefaultModel" valuePropName="checked" noStyle>
-              <Checkbox>
-                <strong>{t("form.fields.forceDefaultModel")}</strong>{" "}
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  · {t("form.fields.forceDefaultModelSub")}
-                </Typography.Text>
-              </Checkbox>
-            </Form.Item>
-
-            <Typography.Text type="secondary" style={{ fontSize: 11, marginTop: 4 }}>
-              {t("form.fields.strictCompatSubswitches")}
-            </Typography.Text>
-            <Form.Item name="featDropNullStrict" valuePropName="checked" noStyle>
-              <Checkbox>
-                <code>dropNullStrict</code>{" "}
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  · {t("form.fields.dropNullStrictSub")}
-                </Typography.Text>
-              </Checkbox>
-            </Form.Item>
-            <Form.Item name="featDropNullContent" valuePropName="checked" noStyle>
-              <Checkbox>
-                <code>dropNullContent</code>{" "}
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  · {t("form.fields.dropNullContentSub")}
-                </Typography.Text>
-              </Checkbox>
-            </Form.Item>
-            <Form.Item name="featDropToolChoiceAuto" valuePropName="checked" noStyle>
-              <Checkbox>
-                <code>dropToolChoiceAuto</code>{" "}
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  · {t("form.fields.dropToolChoiceAutoSub")}
-                </Typography.Text>
-              </Checkbox>
-            </Form.Item>
-            <Form.Item name="featDropStreamOptions" valuePropName="checked" noStyle>
-              <Checkbox>
-                <code>dropStreamOptions</code>{" "}
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  · {t("form.fields.dropStreamOptionsSub")}
-                </Typography.Text>
-              </Checkbox>
-            </Form.Item>
-            <Form.Item name="featDropParallelToolCalls" valuePropName="checked" noStyle>
-              <Checkbox>
-                <code>dropParallelToolCalls</code>{" "}
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  · {t("form.fields.dropParallelToolCallsSub")}
-                </Typography.Text>
-              </Checkbox>
-            </Form.Item>
-            <Form.Item name="featMergeSystemMessages" valuePropName="checked" noStyle>
-              <Checkbox>
-                <code>mergeSystemMessages</code>{" "}
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  · {t("form.fields.mergeSystemMessagesSub")}
-                </Typography.Text>
-              </Checkbox>
-            </Form.Item>
-            <Form.Item name="featExtractThinkTags" valuePropName="checked" noStyle>
-              <Checkbox>
-                <code>extractThinkTags</code>{" "}
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  · {t("form.fields.extractThinkTagsSub")}
-                </Typography.Text>
-              </Checkbox>
-            </Form.Item>
-          </Space>
+          {autoApplied && (
+            <Alert
+              type="success"
+              showIcon
+              closable
+              onClose={() => setAutoApplied(null)}
+              message={t("form.fields.presetAutoApplied", { name: autoApplied })}
+              action={
+                <Button size="small" onClick={clearAutoApplied}>
+                  {t("form.fields.presetClear")}
+                </Button>
+              }
+              style={{ marginBottom: 12 }}
+            />
+          )}
+          {/* Radio value 由 React useState 控制（presetRadioValue），不耦合 antd 内部
+              状态机。hidden Form.Item 仅用于让 validateFields 能拿到该字段以走通既有
+              formValuesToSpec 路径。onChange 里 setFieldsValue + setPresetRadioValue
+              双写保证两边同步。 */}
+          <Form.Item name="featEnhanceErrorPreset" noStyle hidden>
+            <input type="hidden" />
+          </Form.Item>
+          <Radio.Group
+            size="small"
+            value={presetRadioValue}
+            onChange={(e) => onPresetRadioChange(e.target.value as string)}
+          >
+            <Radio.Button value="">{t("form.fields.enhanceErrorPresetNone")}</Radio.Button>
+            <Radio.Button value="sensenova">sensenova</Radio.Button>
+            <Radio.Button value="minimax">minimax</Radio.Button>
+            <Radio.Button value="kimi">kimi</Radio.Button>
+          </Radio.Group>
         </Form.Item>
+
+        {/* 高级：严格 OpenAI 兼容（细粒度子开关）。折叠默认状态自动跟随预设：选预设折
+            叠（推荐已套用，不必看）；选 none 展开。用户也可手动点 header 切换。 */}
+        <Collapse
+          ghost
+          activeKey={advancedExpanded ? ["advanced"] : []}
+          onChange={(keys) =>
+            setAdvancedExpanded(Array.isArray(keys) ? keys.length > 0 : !!keys)
+          }
+          items={[
+            {
+              key: "advanced",
+              label: (
+                <strong style={{ fontSize: 13 }}>
+                  {t("form.fields.strictCompat")}
+                </strong>
+              ),
+              children: (
+                <>
+                  <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+                    {t("form.fields.strictCompatHint")}
+                  </Typography.Paragraph>
+                  <Space direction="vertical">
+                    <Form.Item name="featMinimaxCompat" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        <strong>{t("form.fields.minimaxCompat")}</strong>{" "}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          · {t("form.fields.minimaxCompatSub")}
+                        </Typography.Text>
+                      </Checkbox>
+                    </Form.Item>
+                    <Form.Item name="featForceDefaultModel" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        <strong>{t("form.fields.forceDefaultModel")}</strong>{" "}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          · {t("form.fields.forceDefaultModelSub")}
+                        </Typography.Text>
+                      </Checkbox>
+                    </Form.Item>
+
+                    <Typography.Text type="secondary" style={{ fontSize: 11, marginTop: 4 }}>
+                      {t("form.fields.strictCompatSubswitches")}
+                    </Typography.Text>
+                    <Form.Item name="featDropNullStrict" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        <code>dropNullStrict</code>{" "}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          · {t("form.fields.dropNullStrictSub")}
+                        </Typography.Text>
+                      </Checkbox>
+                    </Form.Item>
+                    <Form.Item name="featDropNullContent" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        <code>dropNullContent</code>{" "}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          · {t("form.fields.dropNullContentSub")}
+                        </Typography.Text>
+                      </Checkbox>
+                    </Form.Item>
+                    <Form.Item name="featDropToolChoiceAuto" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        <code>dropToolChoiceAuto</code>{" "}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          · {t("form.fields.dropToolChoiceAutoSub")}
+                        </Typography.Text>
+                      </Checkbox>
+                    </Form.Item>
+                    <Form.Item name="featDropStreamOptions" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        <code>dropStreamOptions</code>{" "}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          · {t("form.fields.dropStreamOptionsSub")}
+                        </Typography.Text>
+                      </Checkbox>
+                    </Form.Item>
+                    <Form.Item name="featDropParallelToolCalls" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        <code>dropParallelToolCalls</code>{" "}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          · {t("form.fields.dropParallelToolCallsSub")}
+                        </Typography.Text>
+                      </Checkbox>
+                    </Form.Item>
+                    <Form.Item name="featMergeSystemMessages" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        <code>mergeSystemMessages</code>{" "}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          · {t("form.fields.mergeSystemMessagesSub")}
+                        </Typography.Text>
+                      </Checkbox>
+                    </Form.Item>
+                    <Form.Item name="featExtractThinkTags" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        <code>extractThinkTags</code>{" "}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          · {t("form.fields.extractThinkTagsSub")}
+                        </Typography.Text>
+                      </Checkbox>
+                    </Form.Item>
+                    <Form.Item name="featDropResponseFormat" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        <code>dropResponseFormat</code>{" "}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          · {t("form.fields.dropResponseFormatSub")}
+                        </Typography.Text>
+                      </Checkbox>
+                    </Form.Item>
+                    <Form.Item name="featDropNonFunctionTools" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        <code>dropNonFunctionTools</code>{" "}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          · {t("form.fields.dropNonFunctionToolsSub")}
+                        </Typography.Text>
+                      </Checkbox>
+                    </Form.Item>
+                    <Form.Item name="featDropReasoningEffort" valuePropName="checked" noStyle>
+                      <Checkbox>
+                        <code>dropReasoningEffort</code>{" "}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          · {t("form.fields.dropReasoningEffortSub")}
+                        </Typography.Text>
+                      </Checkbox>
+                    </Form.Item>
+                  </Space>
+                </>
+              ),
+            },
+          ]}
+        />
 
         <Form.Item
           name="docsUrl"

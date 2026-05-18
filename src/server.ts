@@ -16,6 +16,7 @@ import type { ChatRequest, ChatResponse, ChatUsage, ResponsesRequest } from "./t
 import { handleAdmin } from "./admin/router.js";
 import { insertLog, type ChatLogEntry } from "./db/logs.js";
 import { getActiveOverride, type ActiveOverride } from "./db/overrides.js";
+import { getSetting } from "./db/settings.js";
 import { redactSensitive } from "./util/redact.js";
 
 // Wraps getActiveOverride() so the per-request DB lookup is safe when:
@@ -29,6 +30,30 @@ function readActiveOverrideSafely(cfg: Config): ActiveOverride | null {
     return getActiveOverride();
   } catch {
     return null;
+  }
+}
+
+// disableThinking 三段解析：CLI/env (cfg.disableThinkingFromCli) > admin settings DB > false。
+// CLI 显式设了 true/false 都尊重；CLI 没设时查 settings.thinking.disabled（"1"=开）。
+// 每个请求开始时调一次，让 admin UI 修改 settings 后**无需重启**立刻生效。
+function resolveDisableThinking(cfg: Config): boolean {
+  if (cfg.disableThinkingFromCli !== undefined) return cfg.disableThinkingFromCli;
+  if (!cfg.adminEnabled) return false;
+  try {
+    return getSetting("thinking.disabled") === "1";
+  } catch {
+    return false;
+  }
+}
+
+// forceHighEffort 解析：admin settings DB → false。当前没暴露 CLI flag（如有需求再加）。
+// 与 disableThinking 不同维度：disableThinking=true 时本开关被忽略。
+function resolveForceHighEffort(cfg: Config): boolean {
+  if (!cfg.adminEnabled) return false;
+  try {
+    return getSetting("thinking.forceHighEffort") === "1";
+  } catch {
+    return false;
   }
 }
 
@@ -381,6 +406,8 @@ async function handleResponses(
     runtime,
     exposeReasoning: cfg.exposeReasoning,
     dataDir: cfg.dataDir,
+    disableThinking: resolveDisableThinking(cfg),
+    forceHighEffort: resolveForceHighEffort(cfg),
   });
   chat.model = upstreamModel;
   chat.stream = !!payload.stream;
@@ -945,6 +972,8 @@ async function handleChatPassthrough(
   const body = provider.preprocessChat(payload, {
     runtime,
     exposeReasoning: cfg.exposeReasoning,
+    disableThinking: resolveDisableThinking(cfg),
+    forceHighEffort: resolveForceHighEffort(cfg),
   });
   body.model = upstreamModel;
 

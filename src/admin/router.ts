@@ -40,6 +40,7 @@ import {
   writeSpecsToFile,
 } from "../providers/genericLoader.js";
 import type { GenericProviderSpec } from "../providers/generic.js";
+import { PROVIDER_PRESETS } from "../providers/presets.js";
 import { isAbsolute as pathIsAbsolute } from "node:path";
 import { applyCodex, deleteBackupPair, readCodexState, restoreCodex } from "../codex/state.js";
 import {
@@ -272,6 +273,71 @@ async function handleApi(ctx: RouteContext): Promise<void> {
       path: loc.path,
       restartRequired: true,
     });
+  }
+
+  // GET /admin/api/thinking-state
+  // PUT /admin/api/thinking-state body { disabled?: boolean, forceHighEffort?: boolean }
+  // PUT 写 settings.thinking.disabled / .forceHighEffort（同一请求可只改一个，未传字段不变）。
+  // GET 返回两个开关的 effective + cliOverride 标志。disableThinking 受 CLI flag 控制；
+  // forceHighEffort 目前仅 settings 控制。
+  if (pathname === "/admin/api/thinking-state") {
+    if (req.method === "GET") {
+      const cliOverride = cfg.disableThinkingFromCli ?? null;
+      const disabledFromSetting = (() => {
+        try {
+          return getSetting("thinking.disabled") === "1";
+        } catch {
+          return false;
+        }
+      })();
+      const forceHighEffortFromSetting = (() => {
+        try {
+          return getSetting("thinking.forceHighEffort") === "1";
+        } catch {
+          return false;
+        }
+      })();
+      const effective = cliOverride !== null ? cliOverride : disabledFromSetting;
+      return sendJson(res, 200, {
+        effective,
+        cliOverride,
+        setting: disabledFromSetting,
+        forceHighEffort: forceHighEffortFromSetting,
+      });
+    }
+    if (req.method === "PUT") {
+      const body = await readJsonBody<{ disabled?: unknown; forceHighEffort?: unknown }>(req);
+      let changed = false;
+      if (typeof body.disabled === "boolean") {
+        setSetting("thinking.disabled", body.disabled ? "1" : "0");
+        log.info(`thinking.disabled set to ${body.disabled} via admin UI`);
+        changed = true;
+      }
+      if (typeof body.forceHighEffort === "boolean") {
+        setSetting("thinking.forceHighEffort", body.forceHighEffort ? "1" : "0");
+        log.info(`thinking.forceHighEffort set to ${body.forceHighEffort} via admin UI`);
+        changed = true;
+      }
+      if (!changed) {
+        return sendError(
+          res,
+          400,
+          "invalid_body",
+          "body must include at least one of: disabled (boolean), forceHighEffort (boolean)",
+        );
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+    return sendError(res, 405, "method_not_allowed", "use GET or PUT");
+  }
+
+  // GET /admin/api/provider-presets
+  // Returns the known-vendor preset metadata (matchBaseUrl / matchModelPrefix /
+  // recommendedSpec) so the admin UI can auto-fill features when the user types
+  // a known vendor's baseUrl/model into the New/Edit Generic Provider form. No
+  // auth concerns — this is static metadata baked into the binary.
+  if (req.method === "GET" && pathname === "/admin/api/provider-presets") {
+    return sendJson(res, 200, { presets: PROVIDER_PRESETS });
   }
 
   // GET /admin/api/setup-snippets?provider=<id>
