@@ -16,6 +16,7 @@ import type { ChatRequest, ChatResponse, ChatUsage, ResponsesRequest } from "./t
 import { handleAdmin } from "./admin/router.js";
 import { insertLog, type ChatLogEntry } from "./db/logs.js";
 import { getActiveOverride, type ActiveOverride } from "./db/overrides.js";
+import { getSetting } from "./db/settings.js";
 import { redactSensitive } from "./util/redact.js";
 
 // Wraps getActiveOverride() so the per-request DB lookup is safe when:
@@ -29,6 +30,19 @@ function readActiveOverrideSafely(cfg: Config): ActiveOverride | null {
     return getActiveOverride();
   } catch {
     return null;
+  }
+}
+
+// disableThinking 三段解析：CLI/env (cfg.disableThinkingFromCli) > admin settings DB > false。
+// CLI 显式设了 true/false 都尊重；CLI 没设时查 settings.thinking.disabled（"1"=开）。
+// 每个请求开始时调一次，让 admin UI 修改 settings 后**无需重启**立刻生效。
+function resolveDisableThinking(cfg: Config): boolean {
+  if (cfg.disableThinkingFromCli !== undefined) return cfg.disableThinkingFromCli;
+  if (!cfg.adminEnabled) return false;
+  try {
+    return getSetting("thinking.disabled") === "1";
+  } catch {
+    return false;
   }
 }
 
@@ -381,6 +395,7 @@ async function handleResponses(
     runtime,
     exposeReasoning: cfg.exposeReasoning,
     dataDir: cfg.dataDir,
+    disableThinking: resolveDisableThinking(cfg),
   });
   chat.model = upstreamModel;
   chat.stream = !!payload.stream;
@@ -945,6 +960,7 @@ async function handleChatPassthrough(
   const body = provider.preprocessChat(payload, {
     runtime,
     exposeReasoning: cfg.exposeReasoning,
+    disableThinking: resolveDisableThinking(cfg),
   });
   body.model = upstreamModel;
 

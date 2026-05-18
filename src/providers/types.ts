@@ -41,6 +41,11 @@ export interface PreprocessCtx {
   // pass the path to mimoskill/scripts/ocr.py. Empty/undefined → falls back
   // to os.tmpdir() inside reqToChat. Typically `cfg.dataDir`.
   dataDir?: string;
+  // 全局"关思考"开关：CLI --disable-thinking / env / admin UI 控制。
+  // 各 provider 自己决定怎么落地到上游字段（mimo/deepseek: thinking:{type:"disabled"}；
+  // sensenova/generic: reasoning_effort:"none"）。reqToChat 一并设两个，由 generic
+  // provider 的 preprocessResponses 删掉 thinking，正好留 reasoning_effort 给 sensenova。
+  disableThinking?: boolean;
 }
 
 export interface Provider {

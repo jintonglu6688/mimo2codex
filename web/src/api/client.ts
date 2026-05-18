@@ -342,6 +342,13 @@ export const api = {
     ),
   providerPresets: () =>
     request<ProviderPresetsResponse>("GET", "/provider-presets"),
+  thinkingState: () =>
+    request<{ effective: boolean; cliOverride: boolean | null; setting: boolean }>(
+      "GET",
+      "/thinking-state"
+    ),
+  setThinkingDisabled: (disabled: boolean) =>
+    request<{ ok: boolean; disabled: boolean }>("PUT", "/thinking-state", { disabled }),
   codexState: () => request<CodexState>("GET", "/codex-state"),
   codexTargets: () => request<CodexTargetsResponse>("GET", "/codex-targets"),
   codexApply: (body: { providerId: string; modelId: string }) =>

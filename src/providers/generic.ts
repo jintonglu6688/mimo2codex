@@ -165,19 +165,28 @@ export function createGenericProvider(spec: GenericProviderSpec): Provider {
         forceParallelToolCalls: !!features.forceParallelToolCalls,
         enableWebSearch: !!features.webSearch,
         imageDropDir: ctx.dataDir,
+        disableThinking: ctx.disableThinking,
       });
-      // Generic OpenAI-compat upstreams don't understand MiMo's `thinking`
-      // family. Strip pre-emptively (reqToChat doesn't emit them, but a
-      // future caller might).
+      // Generic OpenAI-compat upstreams don't understand MiMo's `thinking` family —
+      // strip it. 然后**自己**翻成 sensenova 等接受的 reasoning_effort:"none"，
+      // 因为 reqToChat 只发标准 thinking 信号、不知道下游是谁。
       delete chat.thinking;
       delete chat.enable_thinking;
+      if (ctx.disableThinking) {
+        chat.reasoning_effort = "none";
+      }
       return applyMinimaxCompat(chat, features); // minimax-compat: 关闭时是恒等
     },
 
-    preprocessChat(req: ChatRequest, _ctx: PreprocessCtx): ChatRequest {
+    preprocessChat(req: ChatRequest, ctx: PreprocessCtx): ChatRequest {
       const out = { ...req };
       delete out.thinking;
       delete out.enable_thinking;
+      if (ctx.disableThinking) {
+        // chat completions 路径：直接覆盖 reasoning_effort 表达"关思考"。
+        // sensenova 接受 "none"；其他 generic 上游可能不识别但通常忽略未知值。
+        out.reasoning_effort = "none";
+      }
       return applyMinimaxCompat(out, features); // minimax-compat: 关闭时是恒等
     },
 

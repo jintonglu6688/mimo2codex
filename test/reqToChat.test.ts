@@ -1061,6 +1061,37 @@ describe("reqToChat", () => {
   });
 });
 
+describe("reqToChat — reasoning.effort passthrough", () => {
+  it("passes Codex reasoning.effort 'high' through as chat.reasoning_effort", () => {
+    const req: ResponsesRequest = {
+      model: "sensenova-6.7-flash-lite",
+      input: [{ type: "message", role: "user", content: "hi" }],
+      reasoning: { effort: "high" },
+    } as ResponsesRequest;
+    const chat = reqToChat(req);
+    expect(chat.reasoning_effort).toBe("high");
+  });
+
+  it("'minimal' is mapped to 'low' (closest ChatRequest enum)", () => {
+    const req: ResponsesRequest = {
+      model: "any",
+      input: "hi",
+      reasoning: { effort: "minimal" },
+    } as ResponsesRequest;
+    const chat = reqToChat(req);
+    expect(chat.reasoning_effort).toBe("low");
+  });
+
+  it("when Codex omits reasoning, chat.reasoning_effort is undefined (provider's normalizeBody fills its own default)", () => {
+    const req: ResponsesRequest = {
+      model: "any",
+      input: "hi",
+    } as ResponsesRequest;
+    const chat = reqToChat(req);
+    expect(chat.reasoning_effort).toBeUndefined();
+  });
+});
+
 // Covers the symmetric counterpart of "missing function_call_output …
 // placeholder" above. The mirror direction — orphan function_call_output
 // items in history (Codex desync after Esc / Ctrl+C, openai/codex#8479) —

@@ -118,6 +118,11 @@ function normalizeMimoBody(chat: ChatRequest, modelId: string): ChatRequest {
   if (chat.tool_choice && chat.tool_choice !== "auto") {
     delete chat.tool_choice;
   }
+  // mimo schema 仅允许 reasoning_effort ∈ {low, medium, high}；"none" 是 sensenova 扩展，
+  // 走错了路径会 400。任何形如 thinking:disabled 的请求都不需要这个字段，直接 strip 防御。
+  if (chat.thinking?.type === "disabled" && chat.reasoning_effort === "none") {
+    delete chat.reasoning_effort;
+  }
   return chat;
 }
 
@@ -157,13 +162,20 @@ export const mimo: Provider = {
       forceParallelToolCalls: true,
       enableWebSearch: !ctx.runtime.flags.isTokenPlan,
       imageDropDir: ctx.dataDir,
+      disableThinking: ctx.disableThinking,
     });
     return normalizeMimoBody(chat, req.model);
   },
 
-  preprocessChat(req: ChatRequest, _ctx: PreprocessCtx): ChatRequest {
+  preprocessChat(req: ChatRequest, ctx: PreprocessCtx): ChatRequest {
     // Chat passthrough: forward verbatim. MiMo is itself Chat-Completions-native.
-    return normalizeMimoBody(req, req.model);
+    const out = { ...req };
+    if (ctx.disableThinking) {
+      // mimo 上游用 thinking:{type:"disabled"} 关思考。**不要**碰 reasoning_effort ——
+      // mimo schema 只接受 low/medium/high，"none" 会 400。
+      out.thinking = { type: "disabled" };
+    }
+    return normalizeMimoBody(out, out.model);
   },
 
   enhanceError({ status, snippet }): ProviderEnhancedError | null {

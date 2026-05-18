@@ -709,9 +709,23 @@ export function reqToChat(req: ResponsesRequest, opts: ReqToChatOpts = {}): Chat
     chat.max_completion_tokens = req.max_output_tokens;
   }
 
-  // --disable-thinking: tells MiMo to skip its reasoning mode. Helps when the
-  // model would otherwise spend tokens narrating ("I'll do X") and end the
-  // turn without ever calling a tool.
+  // 把 Codex 的 reasoning.effort 翻成 chat completions 的 reasoning_effort。
+  // 这是 OpenAI GPT-5 / DeepSeek V4 / SenseNova 6.7 都接受的事实标准字段。
+  // mimo / deepseek builtin provider 的 normalizeBody 只在 chat.reasoning_effort
+  // 仍为 undefined 时才注入默认值，所以本透传不会覆盖它们的默认行为；对 generic
+  // provider（sensenova 等），让上游收到用户在 Codex 端配置的真实思考强度。
+  // Responses 里的 "minimal" → chat 里没有对应值，降级为 "low"（语义最近）。
+  if (req.reasoning?.effort) {
+    const eff = req.reasoning.effort;
+    chat.reasoning_effort =
+      eff === "minimal" ? "low" : (eff as ChatRequest["reasoning_effort"]);
+  }
+
+  // 全局"关思考"信号：只设 thinking:{type:"disabled"}（OpenAI 标准做法，mimo / deepseek
+  // 直接认）。reasoning_effort:"none" 是 SenseNova 6.7 的专属扩展，mimo / deepseek 上游
+  // 会因为"未知枚举值"400（mimo 报 Input should be 'low','medium' or 'high'）。所以由各
+  // generic provider 的 preprocessXxx 自己在剥掉 thinking 后**额外**注 reasoning_effort:"none"，
+  // 不在这里一刀切。
   if (opts.disableThinking) {
     chat.thinking = { type: "disabled" };
   }

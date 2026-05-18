@@ -31,6 +31,12 @@ export interface Config {
   // codex's /compact command. "passthrough": forward the raw upstream error.
   // Controlled via MIMO2CODEX_CONTEXT_OVERFLOW_MODE.
   contextOverflowMode: ContextOverflowMode;
+  // --disable-thinking CLI flag (or MIMO2CODEX_DISABLE_THINKING env)。三态：
+  //   true  → CLI/env 显式开启了"关思考"
+  //   false → CLI/env 显式 --reasoning（等同 --no-disable-thinking）/未来留口
+  //   undefined → 未显式设置，让运行时读 settings DB（admin UI 控制）
+  // server.ts 的 resolveDisableThinking() 实现 CLI > settings > false 的优先级。
+  disableThinkingFromCli?: boolean;
 }
 
 const DEFAULTS = {
@@ -51,6 +57,7 @@ export interface ParsedArgs {
   noAdmin?: boolean;
   noLoadEnv?: boolean;
   noUpdateCheck?: boolean;
+  disableThinking?: boolean;
   positional: string[];
   showHelp: boolean;
   showVersion: boolean;
@@ -110,6 +117,9 @@ export function parseArgv(argv: string[]): ParsedArgs {
         break;
       case "--no-update-check":
         out.noUpdateCheck = true;
+        break;
+      case "--disable-thinking":
+        out.disableThinking = true;
         break;
       case "--help":
       case "-h":
@@ -230,6 +240,14 @@ export function buildConfig(parsed: ParsedArgs, env: NodeJS.ProcessEnv, version:
   const contextOverflowMode: ContextOverflowMode =
     overflowEnv === "passthrough" ? "passthrough" : "friendly";
 
+  // CLI flag 优先，否则看 env (MIMO2CODEX_DISABLE_THINKING=1)，否则留 undefined
+  // 让 server 运行时读 settings DB（让 admin UI 改完立刻生效，无需重启）。
+  const disableThinkingFromCli: boolean | undefined =
+    parsed.disableThinking ??
+    (env.MIMO2CODEX_DISABLE_THINKING === "1" || env.MIMO2CODEX_DISABLE_THINKING === "true"
+      ? true
+      : undefined);
+
   return {
     host: parsed.host ?? env.MIMO2CODEX_HOST ?? DEFAULTS.host,
     port: parsed.port ?? portFromEnv ?? DEFAULTS.port,
@@ -244,5 +262,6 @@ export function buildConfig(parsed: ParsedArgs, env: NodeJS.ProcessEnv, version:
     dataDir,
     adminEnabled,
     contextOverflowMode,
+    disableThinkingFromCli,
   };
 }

@@ -275,6 +275,40 @@ async function handleApi(ctx: RouteContext): Promise<void> {
     });
   }
 
+  // GET /admin/api/thinking-state
+  // PUT /admin/api/thinking-state body { disabled: boolean }
+  // PUT 写 settings.thinking.disabled；GET 返回当前 effective 状态 + cli override 标志。
+  // CLI flag (--disable-thinking) 优先于 settings：cliOverride = true/false 表示用户已用 CLI/env
+  // 显式控制，UI 改也不生效；null = CLI 未设，UI 改即时生效。
+  if (pathname === "/admin/api/thinking-state") {
+    if (req.method === "GET") {
+      const cliOverride = cfg.disableThinkingFromCli ?? null;
+      const fromSetting = (() => {
+        try {
+          return getSetting("thinking.disabled") === "1";
+        } catch {
+          return false;
+        }
+      })();
+      const effective = cliOverride !== null ? cliOverride : fromSetting;
+      return sendJson(res, 200, {
+        effective,
+        cliOverride,
+        setting: fromSetting,
+      });
+    }
+    if (req.method === "PUT") {
+      const body = await readJsonBody<{ disabled?: unknown }>(req);
+      if (typeof body.disabled !== "boolean") {
+        return sendError(res, 400, "invalid_body", "body.disabled must be boolean");
+      }
+      setSetting("thinking.disabled", body.disabled ? "1" : "0");
+      log.info(`thinking.disabled set to ${body.disabled} via admin UI`);
+      return sendJson(res, 200, { ok: true, disabled: body.disabled });
+    }
+    return sendError(res, 405, "method_not_allowed", "use GET or PUT");
+  }
+
   // GET /admin/api/provider-presets
   // Returns the known-vendor preset metadata (matchBaseUrl / matchModelPrefix /
   // recommendedSpec) so the admin UI can auto-fill features when the user types

@@ -9,6 +9,7 @@ import {
   message,
   Modal,
   Space,
+  Switch,
   Table,
   Tag,
   Tooltip,
@@ -56,6 +57,12 @@ export function CodexEnable() {
   const [busy, setBusy] = useState<Busy>(null);
   const [probes, setProbes] = useState<Record<string, ProbeState>>({});
   const [codexDirInfo, setCodexDirInfo] = useState<CodexDirInfo | null>(null);
+  // thinking.disabled setting：admin UI 控制的全局"关思考"开关。null = 加载中。
+  // CLI flag (--disable-thinking / env) 优先于该设置 —— 当 cliOverridden 为 true 时
+  // 显示一行提示并禁用 Switch（避免 UI 误导用户以为自己能改）。
+  const [thinkingDisabled, setThinkingDisabled] = useState<boolean | null>(null);
+  const [thinkingCliOverridden, setThinkingCliOverridden] = useState<boolean>(false);
+  const [thinkingSaving, setThinkingSaving] = useState<boolean>(false);
 
   async function doProbe(target: CodexTarget) {
     const key = `${target.providerId}::${target.modelId}`;
@@ -84,16 +91,33 @@ export function CodexEnable() {
   async function load() {
     try {
       setError(null);
-      const [s, ts, dirInfo] = await Promise.all([
+      const [s, ts, dirInfo, think] = await Promise.all([
         api.codexState(),
         api.codexTargets(),
         api.codexDir(),
+        api.thinkingState().catch(() => null), // 老后端没此端点时降级
       ]);
       setState(s);
       setTargetsResp(ts);
       setCodexDirInfo(dirInfo);
+      if (think) {
+        setThinkingDisabled(think.effective);
+        setThinkingCliOverridden(think.cliOverride !== null);
+      }
     } catch (err) {
       setError((err as Error).message);
+    }
+  }
+
+  async function doToggleThinking(disabled: boolean): Promise<void> {
+    setThinkingSaving(true);
+    try {
+      await api.setThinkingDisabled(disabled);
+      setThinkingDisabled(disabled);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setThinkingSaving(false);
     }
   }
 
@@ -319,6 +343,40 @@ export function CodexEnable() {
           dirInfo={codexDirInfo}
           onReload={() => void load()}
         />
+      )}
+
+      {thinkingDisabled !== null && (
+        <Card title={t("thinking.title")} style={{ marginBottom: 16 }}>
+          <Space direction="vertical" size={8} style={{ width: "100%" }}>
+            <Space>
+              {/* UI 层语义：Switch on = "开思考"，off = "关思考"。直觉的"开关 = 启用"。
+                  内部 state thinkingDisabled / 后端 setting key (thinking.disabled) 仍保留
+                  原义（true = 关思考），UI 这里反转一次。 */}
+              <Switch
+                checked={!thinkingDisabled}
+                loading={thinkingSaving}
+                disabled={thinkingCliOverridden}
+                onChange={(enabled) => void doToggleThinking(!enabled)}
+                checkedChildren={t("thinking.switchOn")}
+                unCheckedChildren={t("thinking.switchOff")}
+              />
+              <span>
+                {thinkingDisabled ? t("thinking.statusOff") : t("thinking.statusOn")}
+              </span>
+            </Space>
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>
+              {t("thinking.hint")}
+            </Typography.Paragraph>
+            {thinkingCliOverridden && (
+              <Alert
+                type="warning"
+                showIcon
+                message={t("thinking.cliOverride")}
+                style={{ marginTop: 4 }}
+              />
+            )}
+          </Space>
+        </Card>
       )}
 
       {state && (

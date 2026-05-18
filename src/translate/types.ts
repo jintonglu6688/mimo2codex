@@ -278,7 +278,8 @@ export interface ChatRequest {
   // DeepSeek-specific thinking-mode intensity. See
   // https://api-docs.deepseek.com/zh-cn/guides/thinking_mode — default "high"
   // for normal requests, Claude Code / OpenCode-style Agents auto-promoted to "max".
-  reasoning_effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  // "none" 是 SenseNova 6.7 的扩展（关思考），其他厂家可能不识别 —— per-provider 自处理。
+  reasoning_effort?: "low" | "medium" | "high" | "xhigh" | "max" | "none";
 }
 
 export interface ChatChoiceMessage {
