@@ -1,0 +1,24 @@
+# mimo2codex docker-compose 部署
+# 用法：
+#   1. cp .env.example .env  并填入 API key (MIMO_API_KEY 或 DEEPSEEK_API_KEY 等)
+#   2. docker compose up -d
+#   3. 浏览器打开 http://localhost:8788
+#
+# 数据目录挂在 ./.mimo2codex/，包含 sqlite + providers.json + admin UI 状态。
+# 想复用现有 ~/.mimo2codex/，把 volumes 改成 ~/.mimo2codex:/data 即可。
+
+services:
+  mimo2codex:
+    image: ghcr.io/7as0nch/mimo2codex:latest
+    # 想本地构建而不是拉镜像？注释上一行，启用下一行：
+    # build: .
+    container_name: mimo2codex
+    restart: unless-stopped
+    ports:
+      - "8788:8788"
+    environment:
+      - MIMO2CODEX_DATA_DIR=/data
+    env_file:
+      - .env
+    volumes:
+      - ./.mimo2codex:/data

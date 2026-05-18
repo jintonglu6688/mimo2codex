@@ -23,8 +23,9 @@
 > 📌 **MiMo 用户重要提示**：按 [MiMo 官方公告](https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/passing-back-reasoning_content)，**每一条带 `tool_calls` 的 assistant 消息在后续轮次必须回传原始 `reasoning_content`**，否则 MiMo 直接 **400** 或软退化成幻觉（agent 不调工具、自言自语、烧 token）。Codex 在公告受影响产品清单里。**mimo2codex ≥ 0.2.3 自动处理这个回传**；老版本和大部分 Codex 侧的代理都不处理。碰到上述症状请[升级](#故障排查)。
 
 <details>
-<summary>🆕 <b>新功能 / v0.2.7（2026-05-15）· webui 大改 + 探测 / 缓存命中</b>（点击展开）</summary>
+<summary>🆕 <b>新功能 / v0.2.15（2026-05-18）· docker 部署 + 多架构镜像</b>（点击展开）</summary>
 
+- **v0.2.15（2026-05-18）· docker 部署**：新增 `Dockerfile`（多阶段 alpine 构建，~70MB）+ `.dockerignore` + GitHub Actions workflow（**自动构建 `linux/amd64 / linux/arm64` 双架构镜像，推送到 ghcr.io/7as0nch/mimo2codex**，不是 DockerHub）；附带 `docker-compose.yml` 一键起，**数据目录挂在本地 `./.mimo2codex/`**（sqlite + providers.json + admin UI 配置都跨容器重建持久化）；env 支持 `.env` 文件挂载或 `-e` / `environment:` 直传 key，**mac / Windows / Linux 全平台**通吃。基于 [#15](https://github.com/7as0nch/mimo2codex/pull/15)（感谢 @hufang360）。
 - **v0.2.7（2026-05-15）· webui 大改 + 工具链优化**：整套 admin webui 用 **Ant Design 5** 重写（深浅主题、中英双语、视口锁定 sider + footer 固定布局、Token 趋势改平滑曲线）；新增 `.env.example` + **Bash / PowerShell 一行命令注入 key** 脚本（`.env` 已 gitignore）；「Codex 启用」每行加 **⚡探测** 按钮，点一下发最小 ping 验证 key/baseUrl/模型 id 是否通；Token 趋势图融合**缓存命中柱**（绿柱 = 命中、灰柱 = 提示总量）+ 窗口聚合命中率；支持**修改 Codex 目录**（settings 或 `CODEX_HOME` 环境变量）。
 - **v0.2.6（2026-05-14）· 「Codex 启用」**：admin webui 一键写入 `~/.codex/auth.json` + `config.toml`，**替代 cc-switch**；同时提供"运行时覆盖"（无需重启 Codex 即可换上游 model）。原文件自动备份，**首次覆盖外部 auth.json 时的备份永久保留**——切换 100 次模型也找得回你原来的真 Codex 配置。详见 [doc/codex-enable.zh.md](./doc/codex-enable.zh.md)。
 
