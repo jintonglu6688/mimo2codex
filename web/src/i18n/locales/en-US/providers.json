@@ -79,6 +79,13 @@
       "dropParallelToolCallsSub": "Strip parallel_tool_calls. OpenAI standard field, NOT in preset — enable only when upstream explicitly rejects it",
       "mergeSystemMessagesSub": "Merge multiple role:\"system\" messages into one leading entry (included in preset)",
       "extractThinkTagsSub": "Response side: extract <think>...</think> blocks from content into reasoning_content so they don't leak as plain assistant text in Codex (required for MiniMax M1/M2/M3, some GLM/Qwen-thinking models; included in preset)",
+      "dropResponseFormatSub": "Strip response_format field (required for gateways that don't list it, e.g. SenseNova 6.7 Flash-Lite; MiniMax actually accepts it — NOT in preset)",
+      "dropNonFunctionToolsSub": "Filter tools[] entries whose type is not function/custom (SenseNova schema only accepts these two; Claude Code/Codex's web_search / file_search builtins get rejected with 400)",
+      "enhanceErrorPresetTitle": "Vendor quick-preset",
+      "enhanceErrorPresetSub": "Picking sensenova / minimax does two things: (1) immediately apply that vendor's recommended fine-grained switches above (existing checks WILL be overwritten — this counts as an explicit user choice); (2) translate opaque 400 markers (e.g. sensenova's \"Errors in message queue response\") into readable diagnostic hints. Picking none disables both and leaves your current switches alone.",
+      "enhanceErrorPresetNone": "none",
+      "presetAutoApplied": "🎯 Detected {{name}} — applied recommended features (existing checked switches are preserved)",
+      "presetClear": "Clear and customize",
       "docsUrl": "docsUrl",
       "docsUrlHint": "Optional — shown in the 'missing key' error as a link"
     },

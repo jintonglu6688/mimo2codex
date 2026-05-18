@@ -417,6 +417,91 @@ describe("loadGenericProviders — GENERIC_FORCE_DEFAULT_MODEL env var (minimax-
   });
 });
 
+describe("createGenericProvider — enhanceErrorPreset (sensenova)", () => {
+  it("unset enhanceErrorPreset → enhanceError returns null (legacy behavior)", () => {
+    const p = createGenericProvider({
+      id: "any-generic",
+      baseUrl: "https://example.com/v1",
+      envKey: "ANY_KEY",
+      defaultModel: "any",
+    });
+    expect(p.enhanceError({ status: 400, snippet: "anything" })).toBeNull();
+  });
+
+  it("enhanceErrorPreset: sensenova translates 'Errors in message queue response'", () => {
+    const p = createGenericProvider({
+      id: "sensenova-generic",
+      baseUrl: "https://token.sensenova.cn/v1",
+      envKey: "SENSENOVA_API_KEY",
+      defaultModel: "sensenova-6.7-flash-lite",
+      features: { enhanceErrorPreset: "sensenova" },
+    });
+    const out = p.enhanceError({
+      status: 400,
+      snippet: '{"error":{"message":"Errors in message queue response","code":"3"}}',
+    });
+    expect(out).not.toBeNull();
+    expect(out?.code).toBe("sensenova_request_validation_failed");
+    expect(out?.message).toMatch(/dropResponseFormat/);
+  });
+
+  it("enhanceErrorPreset: sensenova catches invalid temperature", () => {
+    const p = createGenericProvider({
+      id: "sensenova-generic",
+      baseUrl: "https://token.sensenova.cn/v1",
+      envKey: "SENSENOVA_API_KEY",
+      defaultModel: "sensenova-6.7-flash-lite",
+      features: { enhanceErrorPreset: "sensenova" },
+    });
+    const out = p.enhanceError({
+      status: 400,
+      snippet: '{"error":{"message":"invalid temperature, should in [0,2]."}}',
+    });
+    expect(out?.code).toBe("sensenova_temperature_out_of_range");
+  });
+
+  it("enhanceErrorPreset: sensenova auto-augments missing sanitizer features at runtime", () => {
+    // 老配置：用户只配了 enhanceErrorPreset，没显式配 dropNonFunctionTools / dropResponseFormat 等
+    const p = createGenericProvider({
+      id: "old-sensenova",
+      baseUrl: "https://token.sensenova.cn/v1",
+      envKey: "SENSENOVA_API_KEY",
+      defaultModel: "sensenova-6.7-flash-lite",
+      features: { enhanceErrorPreset: "sensenova" },
+    });
+    // 运行 preprocessChat：tools 数组带 web_search 应该被 dropNonFunctionTools 兜底过滤掉
+    const chat = p.preprocessChat(
+      {
+        model: "sensenova-6.7-flash-lite",
+        messages: [{ role: "user", content: "hi" }],
+        tools: [
+          { type: "function", function: { name: "f1", parameters: {} } },
+          { type: "web_search" } as unknown as never,
+        ],
+      } as never,
+      { runtime: { apiKey: "k", baseUrl: "u", flags: {} }, exposeReasoning: true },
+    );
+    expect(chat.tools).toHaveLength(1);
+    expect(chat.tools?.[0]?.type).toBe("function");
+  });
+
+  it("enhanceErrorPreset: sensenova passes through unrelated 400 (returns null)", () => {
+    const p = createGenericProvider({
+      id: "sensenova-generic",
+      baseUrl: "https://token.sensenova.cn/v1",
+      envKey: "SENSENOVA_API_KEY",
+      defaultModel: "sensenova-6.7-flash-lite",
+      features: { enhanceErrorPreset: "sensenova" },
+    });
+    expect(
+      p.enhanceError({ status: 401, snippet: "unauthorized" }),
+    ).toBeNull();
+    expect(
+      p.enhanceError({ status: 400, snippet: "some unrelated error" }),
+    ).toBeNull();
+  });
+});
+
 describe("loadGenericProviders — providers.json forceDefaultModel + features.minimaxCompat", () => {
   it("forceDefaultModel and features are passed through from JSON", () => {
     const tmp2 = mkdtempSync(join(tmpdir(), "m2c-test-"));

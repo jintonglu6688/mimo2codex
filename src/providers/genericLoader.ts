@@ -156,6 +156,22 @@ function parseSpec(raw: unknown, idx: number): GenericProviderSpec {
             typeof features.extractThinkTags === "boolean"
               ? features.extractThinkTags
               : undefined,
+          dropResponseFormat:
+            typeof features.dropResponseFormat === "boolean"
+              ? features.dropResponseFormat
+              : undefined,
+          dropNonFunctionTools:
+            typeof features.dropNonFunctionTools === "boolean"
+              ? features.dropNonFunctionTools
+              : undefined,
+          // enhanceErrorPreset 是 string 而非 boolean。当前仅承认 "sensenova" / "minimax"，
+          // 未知值丢弃以避免无效配置进入运行时（generic.ts 的 enhanceError 会调
+          // applyEnhanceErrorPreset，签名是 ProviderPresetId 联合类型）。
+          enhanceErrorPreset:
+            features.enhanceErrorPreset === "sensenova" ||
+            features.enhanceErrorPreset === "minimax"
+              ? features.enhanceErrorPreset
+              : undefined,
         }
       : undefined,
     docsUrl: typeof obj.docsUrl === "string" ? obj.docsUrl : undefined,

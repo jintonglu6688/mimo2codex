@@ -273,6 +273,8 @@ Full field reference, `wireApi: "responses"` passthrough mode, copy-pasteable ex
 
 > Strict OpenAI-compatible upstreams (e.g. **MiniMax**) need a one-line `features.minimaxCompat: true` switch — see [doc/minimax.md](./doc/minimax.md).
 
+> **SenseNova (商汤日日新)** is auto-detected in the admin UI: typing `https://token.sensenova.cn/v1` as baseUrl applies the recommended features — see [doc/sensenova.md](./doc/sensenova.md).
+
 > Existing mimo / deepseek users with no `providers.json` **are not affected** — default provider stays `mimo` and behavior is byte-identical.
 
 ## CLI flags

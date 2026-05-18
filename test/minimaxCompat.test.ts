@@ -195,6 +195,55 @@ describe("applyMinimaxCompat — individual switches", () => {
     expect("parallel_tool_calls" in chat).toBe(false);
     expect(chat.stream_options).toBeDefined(); // unchanged
   });
+
+  it("dropResponseFormat removes response_format only", () => {
+    const chat = makeDirtyChat();
+    (chat as { response_format?: unknown }).response_format = { type: "json_object" };
+    applyMinimaxCompat(chat, { dropResponseFormat: true });
+    expect("response_format" in chat).toBe(false);
+    // 其他字段不动
+    expect(chat.stream_options).toBeDefined();
+    expect(chat.parallel_tool_calls).toBe(false);
+  });
+
+  it("dropResponseFormat is NOT in minimaxCompat preset whitelist", () => {
+    // MiniMax 实际接受 response_format（其文档 chat.completions 列了），不应被一键预设删
+    const chat = makeDirtyChat();
+    (chat as { response_format?: unknown }).response_format = { type: "json_object" };
+    applyMinimaxCompat(chat, { minimaxCompat: true });
+    expect((chat as { response_format?: unknown }).response_format).toEqual({ type: "json_object" });
+  });
+
+  it("dropNonFunctionTools removes web_search / file_search etc, keeps function/custom", () => {
+    const chat: ChatRequest = {
+      model: "sensenova-6.7-flash-lite",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [
+        { type: "function", function: { name: "f1", parameters: {} } },
+        { type: "web_search" } as unknown as ChatRequest["tools"][number],
+        { type: "file_search" } as unknown as ChatRequest["tools"][number],
+        { type: "custom", name: "c1" } as unknown as ChatRequest["tools"][number],
+        { type: "computer_use_preview" } as unknown as ChatRequest["tools"][number],
+      ],
+    } as ChatRequest;
+    applyMinimaxCompat(chat, { dropNonFunctionTools: true });
+    expect(chat.tools).toHaveLength(2);
+    expect(chat.tools?.[0]?.type).toBe("function");
+    expect((chat.tools?.[1] as { type?: string })?.type).toBe("custom");
+  });
+
+  it("dropNonFunctionTools removes tools field entirely when all are filtered out", () => {
+    const chat: ChatRequest = {
+      model: "sensenova-6.7-flash-lite",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [
+        { type: "web_search" } as unknown as ChatRequest["tools"][number],
+        { type: "file_search" } as unknown as ChatRequest["tools"][number],
+      ],
+    } as ChatRequest;
+    applyMinimaxCompat(chat, { dropNonFunctionTools: true });
+    expect("tools" in chat).toBe(false);
+  });
 });
 
 describe("applyMinimaxCompat — mergeSystemMessages edge cases", () => {

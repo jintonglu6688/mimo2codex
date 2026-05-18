@@ -26,7 +26,7 @@ import {
 } from "./util/checkUpdate.js";
 import { runUpdate } from "./setup/runUpdate.js";
 import { printLogo } from "./util/logo.js";
-import { printBoxedBanner, colorizeSnippet } from "./util/cliBanner.js";
+import { printBoxedBanner } from "./util/cliBanner.js";
 
 // Discover the data-dir path WITHOUT creating it. Used for print-config /
 // print-cc-switch subcommands so a one-shot snippet print doesn't have
@@ -377,10 +377,24 @@ function printStartupBanner(
   }
 
   printBoxedBanner(lines);
+  // 不再在启动时把 ~/.codex/auth.json + config.toml 完整 snippet 打印到终端 ——
+  // 用户反馈太啰嗦。需要查具体配置请到 admin 控制台（Setup / 对接指引 页），
+  // 或运行 `mimo2codex print-config` / `print-cc-switch` 显式生成。
   // eslint-disable-next-line no-console
   console.log("");
-  // eslint-disable-next-line no-console
-  console.log(colorizeSnippet(configSnippet({ host: cfg.host, port: cfg.port }, target)));
+  if (cfg.adminEnabled) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `具体配置请到 admin 控制台查看： http://${cfg.host}:${cfg.port}/admin/`
+    );
+  } else {
+    // eslint-disable-next-line no-console
+    console.log(
+      `具体配置请运行 \`mimo2codex print-config\`（或 \`print-cc-switch\`）查看。`
+    );
+  }
+  // target 仅在 print-config / print-cc-switch subcommand 路径下用到，本函数已不再消费。
+  void target;
 }
 
 async function main(): Promise<void> {

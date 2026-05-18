@@ -40,6 +40,7 @@ import {
   writeSpecsToFile,
 } from "../providers/genericLoader.js";
 import type { GenericProviderSpec } from "../providers/generic.js";
+import { PROVIDER_PRESETS } from "../providers/presets.js";
 import { isAbsolute as pathIsAbsolute } from "node:path";
 import { applyCodex, deleteBackupPair, readCodexState, restoreCodex } from "../codex/state.js";
 import {
@@ -272,6 +273,15 @@ async function handleApi(ctx: RouteContext): Promise<void> {
       path: loc.path,
       restartRequired: true,
     });
+  }
+
+  // GET /admin/api/provider-presets
+  // Returns the known-vendor preset metadata (matchBaseUrl / matchModelPrefix /
+  // recommendedSpec) so the admin UI can auto-fill features when the user types
+  // a known vendor's baseUrl/model into the New/Edit Generic Provider form. No
+  // auth concerns — this is static metadata baked into the binary.
+  if (req.method === "GET" && pathname === "/admin/api/provider-presets") {
+    return sendJson(res, 200, { presets: PROVIDER_PRESETS });
   }
 
   // GET /admin/api/setup-snippets?provider=<id>

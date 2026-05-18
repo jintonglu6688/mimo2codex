@@ -272,6 +272,8 @@ mimo2codex --model generic
 
 > 严格 OpenAI 兼容的上游（如 **MiniMax**）需要 `features.minimaxCompat: true` 一键开关——详见 [doc/minimax.zh.md](./doc/minimax.zh.md)。
 
+> **商汤日日新 (SenseNova)** 走 admin UI 新增 generic provider 时输入 `https://token.sensenova.cn/v1` 会被自动识别并套用推荐 features——详见 [doc/sensenova.zh.md](./doc/sensenova.zh.md)。
+
 > 既有 mimo / deepseek 用户不写 `providers.json` 时**完全不受影响**——默认仍是 mimo，所有行为字节级一致。
 
 ## CLI 参数速查

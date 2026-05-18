@@ -79,6 +79,13 @@
       "dropParallelToolCallsSub": "删 parallel_tool_calls。OpenAI 标准字段，**不**在一键预设里，仅在上游明确报错时再开",
       "mergeSystemMessagesSub": "合并多条 role:\"system\" 消息为单条前置（一键预设已含）",
       "extractThinkTagsSub": "响应侧：把 content 里的 <think>...</think> 块切到 reasoning_content，避免泄漏给 Codex 当作正文显示（MiniMax M1/M2/M3、部分 GLM/Qwen-thinking 模型必开；一键预设已含）",
+      "dropResponseFormatSub": "删 response_format 字段（SenseNova 6.7 Flash-Lite 等不接受该字段的网关需要；MiniMax 实际接受，**不**在一键预设里）",
+      "dropNonFunctionToolsSub": "过滤 tools 数组里 type 不是 function/custom 的条目（SenseNova schema 只认这俩，Claude Code/Codex 塞的 web_search / file_search 等会被一刀 400）",
+      "enhanceErrorPresetTitle": "厂商快捷预设",
+      "enhanceErrorPresetSub": "选 sensenova / minimax 会做两件事：① 立即把上面的细粒度子开关按该厂商推荐配置一键勾上（已有勾选会被覆盖，这是主动选择信号）；② 上游 400 报错带特定 marker 时（如 sensenova 的 \"Errors in message queue response\"）翻译成可读诊断 hint。选 none = 关闭这两个能力，保留当前已勾的细粒度开关。",
+      "enhanceErrorPresetNone": "none",
+      "presetAutoApplied": "🎯 已识别为 {{name}}，已自动套用推荐 features 配置（不会覆盖已勾过的字段）",
+      "presetClear": "清除并自定义",
       "docsUrl": "docsUrl",
       "docsUrlHint": "可选——缺 key 错误提示里的获取链接"
     },
