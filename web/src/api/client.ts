@@ -1,10 +1,24 @@
 const BASE = "/admin/api";
 
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string | undefined,
+    message: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
+    // Same-origin cookies (session) flow with /admin/api/* in both prod and the
+    // Vite dev proxy (which forwards Set-Cookie + Cookie through to :8788).
+    credentials: "same-origin",
   });
   const text = await res.text();
   let data: unknown = null;
@@ -15,7 +29,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (!res.ok) {
     const err = data as { error?: { code?: string; message?: string } } | null;
-    throw new Error(err?.error?.message ?? `HTTP ${res.status}`);
+    throw new ApiError(res.status, err?.error?.code, err?.error?.message ?? `HTTP ${res.status}`);
   }
   return data as T;
 }
@@ -300,16 +314,160 @@ export interface CodexTargetsResponse {
 
 export interface CodexApplyResponse {
   ok: boolean;
-  backupTs: number;
+  backupTs: number | null;
   authBackup: string | null;
   tomlBackup: string | null;
   authJsonOwnerBefore: "mimo2codex" | "external" | "missing";
-  preserved: boolean;
+  preserved?: boolean;
   restartRequired: boolean;
+  historyId?: number;
+  bundleUrl?: string | null;
+}
+
+export interface CodexHistoryRow {
+  id: number;
+  ts: number;
+  kind: "initial" | "apply" | "restore";
+  provider_id: string | null;
+  model_id: string | null;
+  note: string | null;
+}
+
+export interface CodexBundleResponse {
+  history: CodexHistoryRow;
+  files: { authJson: string; configToml: string };
+  scripts: { posix: string; powershell: string };
+  // Present (non-null) when the server auto-minted a fresh m2c API key for
+  // this download and embedded it into auth.json. Null in local mode and on
+  // 'initial' snapshot bundles.
+  mintedKey: { name: string; prefix: string } | null;
+}
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  display_name: string | null;
+  is_admin: boolean;
+  status: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AuthMeResponse {
+  authMode: "off" | "on";
+  user: AuthUser | null;
+  needsBootstrap: boolean;
+  allowRegister: boolean;
+}
+
+export interface UserWithUsage extends AuthUser {
+  request_count: number;
+  total_tokens: number;
+  last_activity: number | null;
+}
+
+export interface ApiKeyRow {
+  id: number;
+  name: string;
+  key_prefix: string;
+  created_at: number;
+  last_used_at: number | null;
+  revoked_at: number | null;
+}
+
+export interface UpstreamKeySummary {
+  provider_id: string;
+  created_at: number;
+  updated_at: number;
 }
 
 export const api = {
-  health: () => request<{ ok: boolean; dataDir: string; version: string }>("GET", "/health"),
+  health: () => request<{ ok: boolean; dataDir: string; version: string; authMode: "off" | "on" }>("GET", "/health"),
+  authMe: () => request<AuthMeResponse>("GET", "/auth/me"),
+  login: (body: { username: string; password: string }) =>
+    request<{ user: AuthUser }>("POST", "/auth/login", body),
+  logout: () => request<{ ok: boolean }>("POST", "/auth/logout"),
+  bootstrap: (body: { username: string; password: string; displayName?: string }) =>
+    request<{ user: AuthUser }>("POST", "/bootstrap", body),
+  register: (body: { username: string; password: string; displayName?: string }) =>
+    request<{ user: AuthUser }>("POST", "/auth/register", body),
+  getRegisterPolicy: () =>
+    request<{ allowRegister: boolean }>("GET", "/auth/register-policy"),
+  setRegisterPolicy: (allowRegister: boolean) =>
+    request<{ allowRegister: boolean }>("PUT", "/auth/register-policy", { allowRegister }),
+  listUsers: () => request<{ users: UserWithUsage[] }>("GET", "/users"),
+  createUserAdmin: (body: { username: string; password: string; displayName?: string; isAdmin?: boolean }) =>
+    request<{ user: AuthUser }>("POST", "/users", body),
+  patchUser: (
+    id: number,
+    body: Partial<{
+      displayName: string | null;
+      isAdmin: boolean;
+      status: "active" | "disabled";
+      password: string;
+    }>
+  ) => request<{ user: AuthUser }>("PATCH", `/users/${id}`, body),
+  meApiKeys: () =>
+    request<{ api_keys: ApiKeyRow[] }>("GET", "/me/api-keys"),
+  meCreateApiKey: (name: string) =>
+    request<{ token: string; api_key: ApiKeyRow }>("POST", "/me/api-keys", { name }),
+  meRevokeApiKey: (id: number) =>
+    request<{ revoked: boolean }>("DELETE", `/me/api-keys/${id}`),
+  meUpstreamKeys: () =>
+    request<{ upstream_keys: UpstreamKeySummary[] }>("GET", "/me/upstream-keys"),
+  meSetUpstreamKey: (providerId: string, apiKey: string) =>
+    request<{ ok: boolean; provider_id: string }>(
+      "PUT",
+      `/me/upstream-keys/${encodeURIComponent(providerId)}`,
+      { apiKey }
+    ),
+  meDeleteUpstreamKey: (providerId: string) =>
+    request<{ deleted: boolean }>(
+      "DELETE",
+      `/me/upstream-keys/${encodeURIComponent(providerId)}`
+    ),
+  codexHistory: () =>
+    request<{ history: CodexHistoryRow[] }>("GET", "/codex-history"),
+  codexHistoryBundle: (id: number) =>
+    request<CodexBundleResponse>("GET", `/codex-history/${id}/bundle`),
+  codexHistoryDelete: (id: number) =>
+    request<{ deleted: boolean }>("DELETE", `/codex-history/${id}`),
+  codexCurrentBundle: () =>
+    request<CodexBundleResponse>("GET", "/codex-current-bundle"),
+  codexImport: (body: {
+    authJson: string;
+    configToml: string;
+    providerId?: string;
+    modelId?: string;
+    note?: string;
+  }) =>
+    request<{ ok: boolean; historyId: number; restartRequired: boolean; bundleUrl: string | null }>(
+      "POST",
+      "/codex-import",
+      body
+    ),
+  oauthPublicProviders: () =>
+    request<{ providers: Array<{ provider: "github" | "gitee"; callback_url: string }> }>(
+      "GET",
+      "/auth/oauth-providers"
+    ),
+  oauthClients: () =>
+    request<{
+      clients: Array<{
+        provider: "github" | "gitee";
+        client_id: string;
+        callback_url: string;
+        enabled: boolean;
+        updated_at: number;
+        has_secret: boolean;
+      }>;
+    }>("GET", "/oauth-clients"),
+  saveOAuthClient: (
+    provider: "github" | "gitee",
+    body: { clientId: string; clientSecret: string | null; callbackUrl: string; enabled: boolean }
+  ) => request<{ ok: boolean }>("PUT", `/oauth-clients/${provider}`, body),
+  deleteOAuthClient: (provider: "github" | "gitee") =>
+    request<{ deleted: boolean }>("DELETE", `/oauth-clients/${provider}`),
   providers: () => request<{ providers: ProviderInfo[] }>("GET", "/providers"),
   modelsFor: (providerId: string) =>
     request<{ models: ModelRow[] }>("GET", `/providers/${providerId}/models`),

@@ -5,6 +5,7 @@ import {
   Routes,
   useLocation,
   useNavigate,
+  Navigate,
 } from "react-router-dom";
 import { ConfigProvider, Layout, Menu, theme as antdTheme } from "antd";
 import type { MenuProps } from "antd";
@@ -17,10 +18,12 @@ import {
   DashboardOutlined,
   DatabaseOutlined,
   FileTextOutlined,
+  UserOutlined,
 } from "@ant-design/icons";
 
 import { api } from "./api/client";
 import { AppConfigProvider, useAppConfig } from "./contexts/AppConfigContext";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { AppHeader } from "./components/AppHeader";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { Dashboard } from "./pages/Dashboard";
@@ -28,6 +31,13 @@ import { Models } from "./pages/Models";
 import { Logs } from "./pages/logs";
 import { Providers } from "./pages/providers";
 import { CodexEnable } from "./pages/codex";
+import { LoginPage } from "./pages/Login";
+import { BootstrapPage } from "./pages/Bootstrap";
+import { AccountPage } from "./pages/Account";
+import { RegisterPage } from "./pages/Register";
+import { UsersPage } from "./pages/Users";
+import { Spin } from "antd";
+import { TeamOutlined } from "@ant-design/icons";
 
 const GITHUB_REPO = "https://github.com/7as0nch/mimo2codex";
 const { Sider, Content, Footer: AntFooter } = Layout;
@@ -58,7 +68,9 @@ const MENU: MenuEntry[] = [
 export function App() {
   return (
     <AppConfigProvider>
-      <ThemedRoot />
+      <AuthProvider>
+        <ThemedRoot />
+      </AuthProvider>
     </AppConfigProvider>
   );
 }
@@ -75,29 +87,84 @@ function ThemedRoot() {
       locale={antdLocale}
     >
       <BrowserRouter basename="/admin">
-        <Shell />
+        <AuthGate />
       </BrowserRouter>
     </ConfigProvider>
   );
 }
 
+// Routes the user to the correct top-level surface based on the resolved auth
+// state. Order matters:
+//   1. While the /auth/me probe is in-flight we show a spinner instead of
+//      flashing the login form for an instant on every page load.
+//   2. authMode='on' + no users yet → bootstrap page (first-run setup).
+//   3. authMode='on' + not logged in → login page.
+//   4. Anything else (local mode OR logged-in server mode) → main shell.
+function AuthGate() {
+  const { loading, authMode, user, needsBootstrap } = useAuth();
+  const location = useLocation();
+  if (loading) {
+    return (
+      <div
+        style={{
+          height: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Spin size="large" />
+      </div>
+    );
+  }
+  if (authMode === "on" && needsBootstrap) return <BootstrapPage />;
+  if (authMode === "on" && !user) {
+    // Allow the register page through even without a session; RegisterPage
+    // itself surfaces a "disabled" notice when open registration is off.
+    if (location.pathname === "/register") return <RegisterPage />;
+    return <LoginPage />;
+  }
+  return <Shell />;
+}
+
 function Shell() {
   const { t } = useTranslation("nav");
+  const { t: tAuth } = useTranslation("auth");
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const items: MenuProps["items"] = useMemo(
-    () => MENU.map((m) => ({ key: m.path, icon: m.icon, label: t(m.key) })),
-    [t]
-  );
+  const items: MenuProps["items"] = useMemo(() => {
+    const base = MENU.map((m) => ({ key: m.path, icon: m.icon, label: t(m.key) }));
+    if (user) {
+      base.push({ key: "/account", icon: <UserOutlined />, label: tAuth("header.account") });
+    }
+    if (user?.is_admin) {
+      base.push({ key: "/users", icon: <TeamOutlined />, label: tAuth("users.navLabel") });
+    }
+    return base;
+  }, [t, tAuth, user]);
 
-  // Match the longest prefix so nested routes (if added later) still light up the right entry.
+  // Pick the menu item that the current location belongs to. We iterate over
+  // the dynamic items list (not just MENU) so /account and /users — only
+  // added for some users — also light up the right entry. Sort by length
+  // descending so the longest prefix wins (e.g. "/users" before "/").
   const selectedKey = useMemo(() => {
-    const path = location.pathname || "/";
+    // Defensive basename strip: react-router v6 normally hides /admin/ but
+    // some history adapters leak it through and break the prefix match.
+    let path = location.pathname || "/";
+    if (path.startsWith("/admin/")) path = path.slice("/admin".length);
+    if (path === "/admin") path = "/";
     if (path === "/") return "/";
-    const match = MENU.filter((m) => m.path !== "/").find((m) => path.startsWith(m.path));
-    return match?.path ?? "/";
-  }, [location.pathname]);
+    const keys = items
+      .map((it) => (it as { key?: string })?.key)
+      .filter((k): k is string => typeof k === "string" && k.length > 0 && k !== "/")
+      .sort((a, b) => b.length - a.length);
+    for (const k of keys) {
+      if (path === k || path.startsWith(k + "/")) return k;
+    }
+    return "/";
+  }, [location.pathname, items]);
 
   return (
     <Layout style={{ height: "100vh", overflow: "hidden" }}>
@@ -142,6 +209,15 @@ function Shell() {
             {MENU.map((m) => (
               <Route key={m.path} path={m.path} element={m.element} />
             ))}
+            <Route path="/account" element={<AccountPage />} />
+            <Route
+              path="/users"
+              element={user?.is_admin ? <UsersPage /> : <Navigate to="/" replace />}
+            />
+            {/* /register / /login are AuthGate-handled; for already-logged-in
+                users hitting these paths, fall back to dashboard. */}
+            <Route path="/register" element={<Navigate to="/" replace />} />
+            <Route path="/login" element={<Navigate to="/" replace />} />
           </Routes>
         </Content>
         <AppFooter />

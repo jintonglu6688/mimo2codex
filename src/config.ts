@@ -37,6 +37,17 @@ export interface Config {
   //   undefined → 未显式设置，让运行时读 settings DB（admin UI 控制）
   // server.ts 的 resolveDisableThinking() 实现 CLI > settings > false 的优先级。
   disableThinkingFromCli?: boolean;
+  // Authentication mode. "off" (default for the native CLI binary) keeps the
+  // historic local-only behavior: /admin/* and /v1/* are fully open, no users,
+  // no sessions, no per-request key checks. "on" (default in the Docker image
+  // via ENV MIMO2CODEX_AUTH=on) enforces session cookies on /admin/* and
+  // bearer tokens on /v1/*, and exposes the bootstrap/login/users/BYOK
+  // surfaces. The new tables exist in both modes; "off" simply doesn't
+  // populate or consult them.
+  authMode: "off" | "on";
+  // When true the session cookie is marked Secure (HTTPS-only). Defaults
+  // to false; deployers behind nginx/caddy set MIMO2CODEX_COOKIE_SECURE=1.
+  cookieSecure: boolean;
 }
 
 const DEFAULTS = {
@@ -58,6 +69,7 @@ export interface ParsedArgs {
   noLoadEnv?: boolean;
   noUpdateCheck?: boolean;
   disableThinking?: boolean;
+  authMode?: "off" | "on";
   positional: string[];
   showHelp: boolean;
   showVersion: boolean;
@@ -121,6 +133,14 @@ export function parseArgv(argv: string[]): ParsedArgs {
       case "--disable-thinking":
         out.disableThinking = true;
         break;
+      case "--auth": {
+        const v = next().toLowerCase();
+        if (v !== "on" && v !== "off") {
+          throw new Error("--auth must be 'on' or 'off'");
+        }
+        out.authMode = v;
+        break;
+      }
       case "--help":
       case "-h":
         out.showHelp = true;
@@ -248,6 +268,11 @@ export function buildConfig(parsed: ParsedArgs, env: NodeJS.ProcessEnv, version:
       ? true
       : undefined);
 
+  // --auth on|off > MIMO2CODEX_AUTH=on|1|true|off|0|false > "off" default.
+  // Docker images flip this to "on" via ENV in the Dockerfile, so containers
+  // are secure by default while npm/local CLI users keep the zero-auth UX.
+  const authMode: "off" | "on" = resolveAuthMode(parsed.authMode, env);
+
   return {
     host: parsed.host ?? env.MIMO2CODEX_HOST ?? DEFAULTS.host,
     port: parsed.port ?? portFromEnv ?? DEFAULTS.port,
@@ -263,5 +288,18 @@ export function buildConfig(parsed: ParsedArgs, env: NodeJS.ProcessEnv, version:
     adminEnabled,
     contextOverflowMode,
     disableThinkingFromCli,
+    authMode,
+    cookieSecure: env.MIMO2CODEX_COOKIE_SECURE === "1" || env.MIMO2CODEX_COOKIE_SECURE === "true",
   };
+}
+
+function resolveAuthMode(
+  fromCli: "off" | "on" | undefined,
+  env: NodeJS.ProcessEnv
+): "off" | "on" {
+  if (fromCli) return fromCli;
+  const raw = env.MIMO2CODEX_AUTH?.toLowerCase().trim();
+  if (raw === "on" || raw === "1" || raw === "true" || raw === "yes") return "on";
+  if (raw === "off" || raw === "0" || raw === "false" || raw === "no") return "off";
+  return "off";
 }

@@ -27,6 +27,7 @@ import { CurrentStateCard } from "./CurrentStateCard";
 import { ProviderBlock } from "./ProviderBlock";
 import { RuntimeOverrideCard } from "./RuntimeOverrideCard";
 import { BackupCard } from "./BackupCard";
+import { HistoryPanel } from "./HistoryPanel";
 
 export function CodexEnable() {
   const { t } = useTranslation("codexEnable");
@@ -551,6 +552,11 @@ export function CodexEnable() {
                   onDelete={onDeleteBackupClick}
                 />
               ) : null,
+            },
+            {
+              key: "history",
+              label: t("tabs.history", { defaultValue: "History" }),
+              children: <HistoryPanel />,
             },
           ]}
         />

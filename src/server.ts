@@ -14,6 +14,10 @@ import { makeServerResponseSink } from "./util/sse.js";
 import { log } from "./util/log.js";
 import type { ChatRequest, ChatResponse, ChatUsage, ResponsesRequest } from "./translate/types.js";
 import { handleAdmin } from "./admin/router.js";
+import { authGuard } from "./auth/middleware.js";
+import { resolveRuntimeForUser } from "./auth/byok.js";
+import { handleOAuthRoutes } from "./auth/oauthRoutes.js";
+import type { UserRow } from "./db/users.js";
 import { insertLog, type ChatLogEntry } from "./db/logs.js";
 import { getActiveOverride, type ActiveOverride } from "./db/overrides.js";
 import { getSetting } from "./db/settings.js";
@@ -136,6 +140,25 @@ function recordLog(cfg: Config, entry: Omit<ChatLogEntry, "ts">): void {
       log.warn("chat_logs insert failed", { error: (err as Error).message });
     }
   });
+}
+
+// Returns a recordLog bound to the calling user — every chat_logs insert it
+// produces carries the user_id column. Used as a local shadow inside each
+// /v1/* handler so existing call sites don't need editing.
+function userLogger(user: UserRow | null): typeof recordLog {
+  if (!user) return recordLog;
+  const userId = user.id;
+  return (cfg: Config, entry: Omit<ChatLogEntry, "ts">): void => {
+    if (!cfg.adminEnabled) return;
+    const ts = Date.now();
+    setImmediate(() => {
+      try {
+        insertLog({ ...entry, ts, user_id: userId });
+      } catch (err) {
+        log.warn("chat_logs insert failed", { error: (err as Error).message });
+      }
+    });
+  };
 }
 
 function usageFromChatResponse(u: ChatUsage | undefined): {
@@ -331,8 +354,12 @@ function rewriteWarning(notice: { from: string; to: string; reason: string }): {
 async function handleResponses(
   cfg: Config,
   req: IncomingMessage,
-  res: ServerResponse
+  res: ServerResponse,
+  user: UserRow | null
 ): Promise<void> {
+  // Shadow the module-level recordLog with a user-bound version. Every
+  // chat_logs insert from this handler is automatically tagged with user_id.
+  const recordLog = userLogger(user);
   let payload: ResponsesRequest;
   try {
     payload = await readJsonBody<ResponsesRequest>(req);
@@ -372,16 +399,27 @@ async function handleResponses(
     return respondToResponsesProbe(payload, res, !!payload.stream);
   }
 
-  const { provider, runtime, upstreamModel, modelInfo, rewriteNotice } = selectProvider(
+  const selectedRaw = selectProvider(
     payload.model,
     cfg,
     readActiveOverrideSafely(cfg)
+  );
+  const { provider, upstreamModel, modelInfo, rewriteNotice } = selectedRaw;
+  // BYOK: if a logged-in user has stored their own upstream API key for this
+  // provider, swap it into the runtime. Local-mode / shared-key users keep
+  // the existing runtime untouched.
+  const { runtime, source: apiKeySource } = resolveRuntimeForUser(
+    selectedRaw.runtime,
+    provider.id,
+    user,
+    cfg
   );
   log.debug(`routing to provider=${provider.id}`, {
     baseUrl: runtime.baseUrl,
     clientModel: payload.model,
     upstreamModel,
     wireApi: provider.wireApi ?? "chat",
+    apiKeySource,
   });
   if (rewriteNotice) {
     log.warn("client model rewritten on the way upstream", {
@@ -393,13 +431,20 @@ async function handleResponses(
   }
 
   if (provider.wireApi === "responses") {
-    return await handleResponsesPassthrough(cfg, req, res, payload, {
-      provider,
-      runtime,
-      upstreamModel,
-      modelInfo,
-      rewriteNotice,
-    });
+    return await handleResponsesPassthrough(
+      cfg,
+      req,
+      res,
+      payload,
+      {
+        provider,
+        runtime,
+        upstreamModel,
+        modelInfo,
+        rewriteNotice,
+      },
+      user
+    );
   }
 
   const chat = provider.preprocessResponses(payload, {
@@ -619,8 +664,10 @@ async function handleResponsesPassthrough(
     upstreamModel: string;
     modelInfo: SelectedProvider["modelInfo"];
     rewriteNotice: SelectedProvider["rewriteNotice"];
-  }
+  },
+  user: UserRow | null
 ): Promise<void> {
+  const recordLog = userLogger(user);
   const { provider, runtime, upstreamModel, modelInfo, rewriteNotice } = selected;
   const stream = !!payload.stream;
 
@@ -918,8 +965,10 @@ function respondToChatProbe(
 async function handleChatPassthrough(
   cfg: Config,
   req: IncomingMessage,
-  res: ServerResponse
+  res: ServerResponse,
+  user: UserRow | null
 ): Promise<void> {
+  const recordLog = userLogger(user);
   let payload: ChatRequest;
   try {
     payload = await readJsonBody<ChatRequest>(req);
@@ -951,14 +1000,22 @@ async function handleChatPassthrough(
     return respondToChatProbe(payload, res, !!payload.stream);
   }
 
-  const { provider, runtime, upstreamModel, modelInfo, rewriteNotice } = selectProvider(
+  const selectedRaw = selectProvider(
     payload.model,
     cfg,
     readActiveOverrideSafely(cfg)
   );
+  const { provider, upstreamModel, modelInfo, rewriteNotice } = selectedRaw;
+  const { runtime, source: apiKeySource } = resolveRuntimeForUser(
+    selectedRaw.runtime,
+    provider.id,
+    user,
+    cfg
+  );
   log.debug(`routing chat passthrough to provider=${provider.id}`, {
     clientModel: payload.model,
     upstreamModel,
+    apiKeySource,
   });
   if (rewriteNotice) {
     log.warn("client model rewritten on the way upstream", {
@@ -1201,20 +1258,39 @@ export function startServer(cfg: Config): Server {
       });
       return;
     }
+
+    // Resolve the calling user (or null in local mode). The guard may also
+    // short-circuit with a 401 — in that case it sets `handled=true` and we
+    // stop here.
+    const guard = authGuard(cfg, req, res);
+    if (guard.handled) return;
+
+    // OAuth login/callback routes live outside /admin/ so providers can
+    // redirect back to a stable path. The OAuth handler may set a session
+    // cookie + 302 to /admin/, after which the SPA sees the user as logged in.
+    if (url.startsWith("/oauth/")) {
+      void handleOAuthRoutes(cfg, req, res).then((handled) => {
+        if (!handled) {
+          sendJson(res, 404, errorEnvelope(404, "not_found", `no route for ${req.method} ${url}`));
+        }
+      });
+      return;
+    }
+
     if (req.method === "GET" && url.startsWith("/v1/models")) {
       handleModels(cfg, res);
       return;
     }
     if (req.method === "POST" && url.startsWith("/v1/responses")) {
-      void handleResponses(cfg, req, res);
+      void handleResponses(cfg, req, res, guard.ctx.user);
       return;
     }
     if (req.method === "POST" && url.startsWith("/v1/chat/completions")) {
-      void handleChatPassthrough(cfg, req, res);
+      void handleChatPassthrough(cfg, req, res, guard.ctx.user);
       return;
     }
     if (cfg.adminEnabled && (url === "/admin" || url.startsWith("/admin/"))) {
-      void handleAdmin(cfg, req, res);
+      void handleAdmin(cfg, req, res, guard.ctx);
       return;
     }
     sendJson(res, 404, errorEnvelope(404, "not_found", `no route for ${req.method} ${url}`));

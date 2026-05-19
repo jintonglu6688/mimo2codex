@@ -13,6 +13,7 @@ import zhCodexEnable from "./locales/zh-CN/codexEnable.json";
 import zhKeyBanner from "./locales/zh-CN/keyBanner.json";
 import zhUpdate from "./locales/zh-CN/update.json";
 import zhTour from "./locales/zh-CN/tour.json";
+import zhAuth from "./locales/zh-CN/auth.json";
 import enCommon from "./locales/en-US/common.json";
 import enNav from "./locales/en-US/nav.json";
 import enSettings from "./locales/en-US/settings.json";
@@ -25,6 +26,7 @@ import enCodexEnable from "./locales/en-US/codexEnable.json";
 import enKeyBanner from "./locales/en-US/keyBanner.json";
 import enUpdate from "./locales/en-US/update.json";
 import enTour from "./locales/en-US/tour.json";
+import enAuth from "./locales/en-US/auth.json";
 
 export const SUPPORTED_LANGS = ["zh-CN", "en-US"] as const;
 export type SupportedLang = (typeof SUPPORTED_LANGS)[number];
@@ -45,6 +47,7 @@ void i18n.use(initReactI18next).init({
       keyBanner: zhKeyBanner,
       update: zhUpdate,
       tour: zhTour,
+      auth: zhAuth,
     },
     "en-US": {
       common: enCommon,
@@ -59,6 +62,7 @@ void i18n.use(initReactI18next).init({
       keyBanner: enKeyBanner,
       update: enUpdate,
       tour: enTour,
+      auth: enAuth,
     },
   },
   lng: DEFAULT_LANG,
@@ -77,6 +81,7 @@ void i18n.use(initReactI18next).init({
     "keyBanner",
     "update",
     "tour",
+    "auth",
   ],
   interpolation: { escapeValue: false },
   returnEmptyString: false,

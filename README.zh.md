@@ -4,6 +4,7 @@
   <a href="./README.md">English</a> ·
   <a href="./README.zh.md"><strong>简体中文</strong></a> ·
   <a href="./doc/env-setup.zh.md">.env 配置</a> ·
+  <a href="./doc/auth-deployment.zh.md">鉴权与部署</a> ·
   <a href="./doc/mimoskill.zh.md">mimoskill</a> ·
   <a href="./doc/generic-providers.zh.md">通用 Provider</a> ·
   <a href="./doc/codex-enable.zh.md">Codex 启用</a>
@@ -20,7 +21,7 @@
 
 让**最新版** OpenAI Codex CLI / Codex 桌面端接入主流大模型的本地代理。内置 **小米 MiMo V2.5** 与 **DeepSeek V4 Pro**，并提供**通用 provider 机制**——不改任何代码、不重新发包，就能把任何 **OpenAI Chat Completions 兼容**（Qwen / GLM / Kimi / 本地 vLLM / Ollama / LM Studio …）或**原生 Responses API**（OpenAI 自家）的上游接到新版 Codex。把 Codex 的 Responses API 实时翻译成上游的 Chat Completions API，按客户端发的 `model` 字段在 provider 之间自动路由。可配 admin Web 控制台。
 
-> 📌 **MiMo 用户重要提示**：按 [MiMo 官方公告](https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/passing-back-reasoning_content)，**每一条带 `tool_calls` 的 assistant 消息在后续轮次必须回传原始 `reasoning_content`**，否则 MiMo 直接 **400** 或软退化成幻觉（agent 不调工具、自言自语、烧 token）。Codex 在公告受影响产品清单里。**mimo2codex ≥ 0.2.3 自动处理这个回传**；老版本和大部分 Codex 侧的代理都不处理。碰到上述症状请[升级](#故障排查)。
+> 🚀 **v0.2.16 新功能**：可选开启 **Server 模式**——登录系统 + 每用户 API key + BYOK + Gitee / GitHub OAuth + Codex 客户端配置历史与一键下发 bundle。把 mimo2codex 部署到 Docker / 内网 / 小圈子时再也不用担心上游 key 被白嫖。本地单机运行完全不受影响（`authMode` 默认 `off`）。详细教程见 [doc/auth-deployment.zh.md](./doc/auth-deployment.zh.md)——Docker compose、首次启动 bootstrap、OAuth 配置、故障排查全在那里。
 
 <details>
 <summary>🆕 <b>新功能 / v0.2.15（2026-05-18）· 思考模式页面配置/支持关闭思考/深度思考 + docker 部署 + 多架构镜像</b>（点击展开）</summary>
@@ -57,7 +58,7 @@
 - [开发](#开发)
 - [许可证](#许可证)
 
-**详细文档：** [.env 配置](./doc/env-setup.zh.md) · [Docker 部署](./doc/docker.zh.md) · [Codex 启用](./doc/codex-enable.zh.md) · [通用 provider](./doc/generic-providers.zh.md) · [mimoskill](./doc/mimoskill.zh.md)
+**详细文档：** [.env 配置](./doc/env-setup.zh.md) · [Docker 部署](./doc/docker.zh.md) · [鉴权与多用户 (v0.2.16)](./doc/auth-deployment.zh.md) · [Codex 启用](./doc/codex-enable.zh.md) · [通用 provider](./doc/generic-providers.zh.md) · [mimoskill](./doc/mimoskill.zh.md)
 
 ## 解决什么问题
 

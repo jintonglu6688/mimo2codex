@@ -27,6 +27,7 @@ import {
 import { runUpdate } from "./setup/runUpdate.js";
 import { printLogo } from "./util/logo.js";
 import { printBoxedBanner } from "./util/cliBanner.js";
+import { logFirstRunBannerIfNeeded } from "./auth/bootstrap.js";
 
 // Discover the data-dir path WITHOUT creating it. Used for print-config /
 // print-cc-switch subcommands so a one-shot snippet print doesn't have
@@ -76,6 +77,10 @@ OPTIONS
                           (default: auto-loaded if the file exists)
       --no-update-check   skip the startup npm registry version check
                           (env: MIMO2CODEX_NO_UPDATE_CHECK=1)
+      --auth <on|off>     enforce login + per-user API keys (default: off for the
+                          native CLI; on by default inside the Docker image).
+                          env: MIMO2CODEX_AUTH=on. When on, the first start
+                          prints a one-time bootstrap URL.
   -v, --verbose           log every request (env: MIMO2CODEX_VERBOSE=1)
   -V, --version           print version
   -h, --help              show this help
@@ -626,6 +631,13 @@ async function main(): Promise<void> {
   const server = startServer(cfg);
   server.on("listening", () => {
     log.debug("server listening");
+    // Surface the authentication posture in the boot banner — running into
+    // "I set MIMO2CODEX_AUTH but it had no effect" is otherwise hard to
+    // debug from outside the process.
+    log.info(`auth: ${cfg.authMode}${cfg.authMode === "on" ? " — admin login required" : " (local zero-auth mode)"}`);
+    // Log a "go to /admin/ to claim the admin account" banner when authMode=on
+    // and the users table is still empty. No-op otherwise.
+    if (cfg.adminEnabled) logFirstRunBannerIfNeeded(cfg);
   });
   server.on("error", (err) => {
     log.error("server error", { error: err.message });

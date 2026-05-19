@@ -25,6 +25,9 @@ export interface ChatLogEntry {
   // Optional in the entry so the many error-path recordLog call sites that
   // don't have usage data don't need to spell out cached_tokens: null.
   cached_tokens?: number | null;
+  // Caller user when authMode=on. NULL means local mode or a request that
+  // slipped through without a session — surfaced as "anonymous" in admin UI.
+  user_id?: number | null;
 }
 
 const MAX_SNIPPET = 500;
@@ -42,13 +45,13 @@ export function insertLog(entry: ChatLogEntry): void {
         endpoint, status_code, duration_ms,
         prompt_tokens, completion_tokens, total_tokens,
         stream, error_code, error_snippet,
-        request_body, response_body, tool_call_count, cached_tokens
+        request_body, response_body, tool_call_count, cached_tokens, user_id
       ) VALUES (
         @ts, @request_id, @provider_id, @client_model, @upstream_model,
         @endpoint, @status_code, @duration_ms,
         @prompt_tokens, @completion_tokens, @total_tokens,
         @stream, @error_code, @error_snippet,
-        @request_body, @response_body, @tool_call_count, @cached_tokens
+        @request_body, @response_body, @tool_call_count, @cached_tokens, @user_id
       )`
     )
     .run({
@@ -70,7 +73,32 @@ export function insertLog(entry: ChatLogEntry): void {
       response_body: entry.response_body,
       tool_call_count: entry.tool_call_count,
       cached_tokens: entry.cached_tokens ?? null,
+      user_id: entry.user_id ?? null,
     });
+}
+
+// Per-user aggregates for the Users admin page. LEFT JOIN ensures users
+// with no requests still appear (request_count=0, last_activity=null).
+export interface UserUsage {
+  user_id: number;
+  request_count: number;
+  total_tokens: number;
+  last_activity: number | null;
+}
+
+export function aggregateUsagePerUser(): UserUsage[] {
+  return getDb()
+    .prepare(
+      `SELECT u.id AS user_id,
+              COUNT(cl.id) AS request_count,
+              COALESCE(SUM(cl.total_tokens), 0) AS total_tokens,
+              MAX(cl.ts) AS last_activity
+         FROM users u
+         LEFT JOIN chat_logs cl ON cl.user_id = u.id
+        GROUP BY u.id
+        ORDER BY u.id ASC`
+    )
+    .all() as UserUsage[];
 }
 
 export interface LogFilter {

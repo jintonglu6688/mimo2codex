@@ -18,14 +18,19 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import {
   CheckCircleFilled,
+  KeyOutlined,
+  LogoutOutlined,
   SettingOutlined,
+  UserOutlined,
   WarningFilled,
 } from "@ant-design/icons";
+import { useNavigate } from "react-router-dom";
 import { api, type MappingRow, type ProviderInfo } from "../api/client";
 import {
   useAppConfig,
   type ThemeMode,
 } from "../contexts/AppConfigContext";
+import { useAuth } from "../contexts/AuthContext";
 import { SUPPORTED_LANGS, type SupportedLang } from "../i18n";
 
 const { Header } = Layout;
@@ -144,8 +149,52 @@ export function AppHeader() {
           {t("modal.openBtn")}
         </Button>
       </Dropdown>
+      <UserMenu />
       <SectionModal section={section} onClose={() => setSection(null)} />
     </Header>
+  );
+}
+
+// Renders nothing in local mode (authMode='off'). In server mode shows the
+// current display name + a sign-out item. Account / Users links are added in
+// the BYOK + user-management iteration; placeholders kept off the menu for
+// now so we don't show dead links.
+function UserMenu() {
+  const { authMode, user, logout } = useAuth();
+  const { t } = useTranslation("auth");
+  const navigate = useNavigate();
+  if (authMode === "off" || !user) return null;
+  const display = user.display_name || user.username;
+  return (
+    <Dropdown
+      menu={{
+        items: [
+          {
+            key: "account",
+            icon: <KeyOutlined />,
+            label: t("header.account"),
+            onClick: () => navigate("/account"),
+          },
+          { type: "divider" },
+          {
+            key: "logout",
+            icon: <LogoutOutlined />,
+            label: t("header.logout"),
+            onClick: () => void logout(),
+          },
+        ],
+      }}
+      trigger={["click"]}
+    >
+      <Button size="small" icon={<UserOutlined />}>
+        {display}
+        {user.is_admin && (
+          <Tag color="blue" style={{ marginInlineStart: 6 }}>
+            admin
+          </Tag>
+        )}
+      </Button>
+    </Dropdown>
   );
 }
 

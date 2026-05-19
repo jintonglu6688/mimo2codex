@@ -4,6 +4,7 @@
   <a href="./README.md"><strong>English</strong></a> ·
   <a href="./README.zh.md">简体中文</a> ·
   <a href="./doc/env-setup.md">Env Setup</a> ·
+  <a href="./doc/auth-deployment.md">Auth &amp; Deployment</a> ·
   <a href="./doc/mimoskill.md">mimoskill</a> ·
   <a href="./doc/generic-providers.md">Generic Providers</a> ·
   <a href="./doc/codex-enable.md">Codex Enable</a>
@@ -20,7 +21,7 @@
 
 Local proxy that lets the **latest OpenAI Codex CLI / desktop** talk to virtually any modern LLM. Built-in support for **Xiaomi MiMo V2.5** and **DeepSeek V4 Pro**, plus a **generic provider mechanism** that connects any **OpenAI Chat Completions-compatible** (Qwen / GLM / Kimi / vLLM / Ollama / LM Studio …) or **native Responses API** (OpenAI itself) upstream — no code changes, no re-publish needed. Translates Codex's Responses API ↔ upstream Chat Completions on the fly, per-request routing by `model` field, optional admin web console, runs on `127.0.0.1`.
 
-> 📌 **Heads-up for MiMo users**: per [MiMo's official advisory](https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/passing-back-reasoning_content), every assistant message with `tool_calls` must echo back its original `reasoning_content` on the next turn — otherwise MiMo returns **400** or silently degrades into hallucination (agent rambles instead of calling tools, burning tokens). Codex is on MiMo's list of affected products. **mimo2codex ≥ 0.2.3 handles this round-trip automatically**; older versions and most other Codex-side proxies don't. If you hit the symptoms, [upgrade](#troubleshooting).
+> 🚀 **New in v0.2.16**: opt-in **Server mode** ships login + per-user API keys + BYOK + OAuth (Gitee / GitHub) + downloadable Codex config bundles, so you can put mimo2codex behind Docker / an internal network / a small private circle without exposing your upstream key. Local single-user runs are unaffected (`authMode` defaults to `off`). See [doc/auth-deployment.md](./doc/auth-deployment.md) for the full walkthrough — Docker compose, first-run bootstrap, OAuth setup, troubleshooting.
 
 <details>
 <summary>🆕 <b>What's new / v0.2.15 (2026-05-18) · Thinking mode UI / toggle / deep-thinking + Docker deployment + multi-arch images</b> (click to expand)</summary>
@@ -58,7 +59,7 @@ Local proxy that lets the **latest OpenAI Codex CLI / desktop** talk to virtuall
 - [Develop](#develop)
 - [License](#license)
 
-**Detailed guides:** [.env setup](./doc/env-setup.md) · [Docker deployment](./doc/docker.md) · [Codex Enable](./doc/codex-enable.md) · [Generic providers](./doc/generic-providers.md) · [mimoskill](./doc/mimoskill.md)
+**Detailed guides:** [.env setup](./doc/env-setup.md) · [Docker deployment](./doc/docker.md) · [Auth & multi-user (v0.2.16)](./doc/auth-deployment.md) · [Codex Enable](./doc/codex-enable.md) · [Generic providers](./doc/generic-providers.md) · [mimoskill](./doc/mimoskill.md)
 
 ## Why
 

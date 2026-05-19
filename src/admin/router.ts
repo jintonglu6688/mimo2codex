@@ -11,6 +11,7 @@ import {
   aggregateProviderHealth,
   aggregateStats,
   aggregateTokensTimeseries,
+  aggregateUsagePerUser,
   deleteLogsBefore,
   getLogById,
   queryLogs,
@@ -43,6 +44,19 @@ import type { GenericProviderSpec } from "../providers/generic.js";
 import { PROVIDER_PRESETS } from "../providers/presets.js";
 import { isAbsolute as pathIsAbsolute } from "node:path";
 import { applyCodex, deleteBackupPair, readCodexState, restoreCodex } from "../codex/state.js";
+import { authJsonPath, configTomlPath } from "../codex/paths.js";
+import {
+  renderApplyPowerShellScript,
+  renderApplyShellScript,
+} from "../codex/bundle.js";
+import {
+  appendCodexHistory,
+  deleteCodexHistory,
+  getCodexHistoryById,
+  hasInitialHistory,
+  listCodexHistory,
+} from "../db/codexHistory.js";
+import { buildCcSwitchFiles } from "../setup/snippets.js";
 import {
   clearActiveOverride,
   getActiveOverride,
@@ -64,6 +78,59 @@ import {
 } from "../util/checkUpdate.js";
 import { detectUpdateMethod } from "../setup/updateMethod.js";
 import { runUpdate } from "../setup/runUpdate.js";
+import type { AuthContext } from "../auth/middleware.js";
+import {
+  buildSessionCookie,
+  clearSessionCookieHeader,
+} from "../auth/middleware.js";
+import {
+  countUsers,
+  createUser,
+  findUserByUsername,
+  listUsers,
+  updateUser,
+  type UserRow,
+} from "../db/users.js";
+import { hashPassword, verifyPassword } from "../security/passwords.js";
+import {
+  createSession,
+  deleteSession,
+} from "../db/sessions.js";
+import {
+  createApiKey,
+  listApiKeys,
+  revokeApiKey,
+} from "../db/apiKeys.js";
+import {
+  deleteUpstreamKey,
+  listUpstreamKeys,
+  setUpstreamKey,
+} from "../db/upstreamKeys.js";
+import { loadMasterKey } from "../security/masterKey.js";
+import {
+  deleteOAuthClient,
+  listOAuthClients,
+  upsertOAuthClient,
+  type OAuthProvider,
+} from "../db/oauthClients.js";
+
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function publicUser(u: UserRow): Record<string, unknown> {
+  return {
+    id: u.id,
+    username: u.username,
+    display_name: u.display_name,
+    is_admin: u.is_admin === 1,
+    status: u.status,
+    created_at: u.created_at,
+    updated_at: u.updated_at,
+  };
+}
+
+function sessionCookieOpts(cfg: Config): { ttlMs: number; secure: boolean } {
+  return { ttlMs: SESSION_TTL_MS, secure: cfg.cookieSecure };
+}
 
 // Locate dist/web/ relative to THIS module's location, not process.cwd().
 // When mimo2codex is installed globally (`npm install -g`), the user invokes
@@ -168,6 +235,7 @@ interface RouteContext {
   res: ServerResponse;
   pathname: string;
   query: URLSearchParams;
+  auth: AuthContext;
 }
 
 async function handleApi(ctx: RouteContext): Promise<void> {
@@ -181,7 +249,425 @@ async function handleApi(ctx: RouteContext): Promise<void> {
     const version = cfg.userAgent.startsWith("mimo2codex/")
       ? cfg.userAgent.slice("mimo2codex/".length)
       : cfg.userAgent;
-    return sendJson(res, 200, { ok: true, dataDir: cfg.dataDir, version });
+    return sendJson(res, 200, {
+      ok: true,
+      dataDir: cfg.dataDir,
+      version,
+      authMode: cfg.authMode,
+    });
+  }
+
+  // GET /admin/api/auth/me — returns the active user or null. In authMode=off
+  // always returns { user: null, authMode: "off" } so the SPA can detect the
+  // mode without 401-checking. In authMode=on returns the resolved user;
+  // unauthenticated callers see { user: null, authMode: "on" } and the SPA
+  // routes them to /admin/login.
+  if (req.method === "GET" && pathname === "/admin/api/auth/me") {
+    let allowRegister = false;
+    try {
+      allowRegister = getSetting("auth.allowRegister") === "1";
+    } catch {
+      // settings not available (e.g. pre-migration startup) — default off.
+    }
+    return sendJson(res, 200, {
+      authMode: cfg.authMode,
+      user: ctx.auth.user ? publicUser(ctx.auth.user) : null,
+      // Hint for SPA: when authMode=on AND no users exist yet, the bootstrap
+      // page should be shown instead of login.
+      needsBootstrap: cfg.authMode === "on" && safeCountUsers() === 0,
+      // Whether the Login page should surface a "create account" link.
+      allowRegister: cfg.authMode === "on" && allowRegister,
+    });
+  }
+
+  // POST /admin/api/auth/login { username, password } → sets session cookie.
+  if (req.method === "POST" && pathname === "/admin/api/auth/login") {
+    if (cfg.authMode !== "on") {
+      return sendError(res, 400, "auth_off", "login is unavailable in local mode");
+    }
+    const body = await readJsonBody<{ username?: unknown; password?: unknown }>(req);
+    if (typeof body.username !== "string" || typeof body.password !== "string") {
+      return sendError(res, 400, "invalid_body", "username and password are required");
+    }
+    const user = findUserByUsername(body.username);
+    if (!user || !user.password_hash || user.status !== "active") {
+      return sendError(res, 401, "invalid_credentials", "incorrect username or password");
+    }
+    const ok = await verifyPassword(body.password, user.password_hash);
+    if (!ok) {
+      return sendError(res, 401, "invalid_credentials", "incorrect username or password");
+    }
+    const { token } = createSession({
+      userId: user.id,
+      userAgent: (req.headers["user-agent"] as string | undefined) ?? null,
+      ip: req.socket?.remoteAddress ?? null,
+      ttlMs: SESSION_TTL_MS,
+    });
+    res.setHeader("Set-Cookie", buildSessionCookie(token, sessionCookieOpts(cfg)));
+    return sendJson(res, 200, { user: publicUser(user) });
+  }
+
+  // POST /admin/api/auth/register { username, password, displayName? }
+  // Self-registration. Only accepted when authMode=on AND the operator has
+  // flipped the `auth.allowRegister` setting on (default OFF). Result user
+  // is a normal (non-admin) account, immediately signed in.
+  if (req.method === "POST" && pathname === "/admin/api/auth/register") {
+    if (cfg.authMode !== "on") {
+      return sendError(res, 400, "auth_off", "registration is unavailable in local mode");
+    }
+    const allowed = (() => {
+      try {
+        return getSetting("auth.allowRegister") === "1";
+      } catch {
+        return false;
+      }
+    })();
+    if (!allowed) {
+      return sendError(res, 403, "register_disabled", "open registration is disabled by admin");
+    }
+    const body = await readJsonBody<{
+      username?: unknown;
+      password?: unknown;
+      displayName?: unknown;
+    }>(req);
+    if (typeof body.username !== "string" || typeof body.password !== "string") {
+      return sendError(res, 400, "invalid_body", "username and password are required");
+    }
+    if (body.password.length < 8) {
+      return sendError(res, 400, "weak_password", "password must be at least 8 characters");
+    }
+    if (findUserByUsername(body.username)) {
+      return sendError(res, 409, "username_taken", "username is already in use");
+    }
+    const hash = await hashPassword(body.password);
+    const user = createUser({
+      username: body.username,
+      displayName: typeof body.displayName === "string" ? body.displayName : null,
+      passwordHash: hash,
+      isAdmin: false,
+    });
+    log.info(`user self-registered: username=${user.username}`);
+    const { token } = createSession({
+      userId: user.id,
+      userAgent: (req.headers["user-agent"] as string | undefined) ?? null,
+      ip: req.socket?.remoteAddress ?? null,
+      ttlMs: SESSION_TTL_MS,
+    });
+    res.setHeader("Set-Cookie", buildSessionCookie(token, sessionCookieOpts(cfg)));
+    return sendJson(res, 200, { user: publicUser(user) });
+  }
+
+  // POST /admin/api/auth/logout — clears session cookie + DB row (if any).
+  if (req.method === "POST" && pathname === "/admin/api/auth/logout") {
+    if (ctx.auth.session) deleteSession(ctx.auth.session.id);
+    res.setHeader("Set-Cookie", clearSessionCookieHeader(cfg.cookieSecure));
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // POST /admin/api/bootstrap { username, password, displayName? }
+  // Creates the first admin. Valid only while the users table is empty AND
+  // authMode=on. Standard first-run-wizard pattern (Jellyfin / Nextcloud /
+  // Synology): whoever sets the password first wins. The race window is
+  // between container start and the operator opening /admin/.
+  if (req.method === "POST" && pathname === "/admin/api/bootstrap") {
+    if (cfg.authMode !== "on") {
+      return sendError(res, 400, "auth_off", "bootstrap is unavailable in local mode");
+    }
+    if (safeCountUsers() > 0) {
+      return sendError(res, 409, "already_initialized", "an admin user already exists");
+    }
+    const body = await readJsonBody<{
+      username?: unknown;
+      password?: unknown;
+      displayName?: unknown;
+    }>(req);
+    if (typeof body.username !== "string" || typeof body.password !== "string") {
+      return sendError(res, 400, "invalid_body", "username and password are required");
+    }
+    if (body.password.length < 8) {
+      return sendError(res, 400, "weak_password", "password must be at least 8 characters");
+    }
+    const hash = await hashPassword(body.password);
+    const user = createUser({
+      username: body.username,
+      displayName: typeof body.displayName === "string" ? body.displayName : null,
+      passwordHash: hash,
+      isAdmin: true,
+    });
+    log.info(`first admin created via bootstrap: username=${user.username}`);
+    const { token } = createSession({
+      userId: user.id,
+      userAgent: (req.headers["user-agent"] as string | undefined) ?? null,
+      ip: req.socket?.remoteAddress ?? null,
+      ttlMs: SESSION_TTL_MS,
+    });
+    res.setHeader("Set-Cookie", buildSessionCookie(token, sessionCookieOpts(cfg)));
+    return sendJson(res, 200, { user: publicUser(user) });
+  }
+
+  // GET /admin/api/users — admin-only. Returns each user with their lifetime
+  // request/token usage joined from chat_logs (v5 schema). Empty stats (new
+  // user, never made a request) come through as zeros.
+  if (req.method === "GET" && pathname === "/admin/api/users") {
+    if (!requireAdmin(ctx)) return;
+    let usage: ReturnType<typeof aggregateUsagePerUser> = [];
+    try {
+      usage = aggregateUsagePerUser();
+    } catch {
+      // Pre-v5 DB shouldn't be reachable in normal operation, but defensively
+      // fall back to empty usage so the page still loads.
+    }
+    const byUser = new Map(usage.map((u) => [u.user_id, u]));
+    return sendJson(res, 200, {
+      users: listUsers().map((u) => ({
+        ...publicUser(u),
+        request_count: byUser.get(u.id)?.request_count ?? 0,
+        total_tokens: byUser.get(u.id)?.total_tokens ?? 0,
+        last_activity: byUser.get(u.id)?.last_activity ?? null,
+      })),
+    });
+  }
+
+  // POST /admin/api/users { username, password, displayName?, isAdmin? }
+  if (req.method === "POST" && pathname === "/admin/api/users") {
+    if (!requireAdmin(ctx)) return;
+    const body = await readJsonBody<{
+      username?: unknown;
+      password?: unknown;
+      displayName?: unknown;
+      isAdmin?: unknown;
+    }>(req);
+    if (typeof body.username !== "string" || typeof body.password !== "string") {
+      return sendError(res, 400, "invalid_body", "username and password required");
+    }
+    if (body.password.length < 8) {
+      return sendError(res, 400, "weak_password", "password must be at least 8 characters");
+    }
+    if (findUserByUsername(body.username)) {
+      return sendError(res, 409, "username_taken", "username is already in use");
+    }
+    const hash = await hashPassword(body.password);
+    const user = createUser({
+      username: body.username,
+      displayName: typeof body.displayName === "string" ? body.displayName : null,
+      passwordHash: hash,
+      isAdmin: body.isAdmin === true,
+    });
+    log.info(`user created by admin: username=${user.username} admin=${user.is_admin}`);
+    return sendJson(res, 200, { user: publicUser(user) });
+  }
+
+  // GET /admin/api/auth/oauth-providers — publicly readable so the login
+  // page can render the right set of social-login buttons. No secret material
+  // is exposed; only {provider, enabled}.
+  if (req.method === "GET" && pathname === "/admin/api/auth/oauth-providers") {
+    if (cfg.authMode !== "on") {
+      return sendJson(res, 200, { providers: [] });
+    }
+    let rows: ReturnType<typeof listOAuthClients> = [];
+    try {
+      rows = listOAuthClients();
+    } catch {
+      // settings db could be unopened in degenerate setups — return empty.
+    }
+    return sendJson(res, 200, {
+      providers: rows
+        .filter((r) => r.enabled)
+        .map((r) => ({ provider: r.provider, callback_url: r.callback_url })),
+    });
+  }
+
+  // GET /admin/api/oauth-clients — admin-only list (full metadata, no secret).
+  if (req.method === "GET" && pathname === "/admin/api/oauth-clients") {
+    if (!requireAdmin(ctx)) return;
+    return sendJson(res, 200, { clients: listOAuthClients() });
+  }
+
+  // PUT /admin/api/oauth-clients/:provider — admin upsert. clientSecret may
+  // be omitted on subsequent edits to preserve the existing ciphertext.
+  // DELETE /admin/api/oauth-clients/:provider — admin remove.
+  {
+    const m = /^\/admin\/api\/oauth-clients\/(gitee|github)$/.exec(pathname);
+    if (m) {
+      if (!requireAdmin(ctx)) return;
+      const provider = m[1] as OAuthProvider;
+      if (req.method === "PUT") {
+        const body = await readJsonBody<{
+          clientId?: unknown;
+          clientSecret?: unknown;
+          callbackUrl?: unknown;
+          enabled?: unknown;
+        }>(req);
+        if (
+          typeof body.clientId !== "string" ||
+          typeof body.callbackUrl !== "string"
+        ) {
+          return sendError(res, 400, "invalid_body", "clientId and callbackUrl required");
+        }
+        const { key } = loadMasterKey(cfg.dataDir);
+        try {
+          upsertOAuthClient(
+            {
+              provider,
+              clientId: body.clientId,
+              clientSecret:
+                typeof body.clientSecret === "string" && body.clientSecret.length > 0
+                  ? body.clientSecret
+                  : null,
+              callbackUrl: body.callbackUrl,
+              enabled: body.enabled === true,
+            },
+            key
+          );
+        } catch (err) {
+          return sendError(res, 400, "invalid_body", (err as Error).message);
+        }
+        log.info(`oauth client upserted: provider=${provider} enabled=${body.enabled === true}`);
+        return sendJson(res, 200, { ok: true });
+      }
+      if (req.method === "DELETE") {
+        const deleted = deleteOAuthClient(provider);
+        return sendJson(res, 200, { deleted });
+      }
+    }
+  }
+
+  // GET /admin/api/me/api-keys — current user's bearer tokens (no secret).
+  if (req.method === "GET" && pathname === "/admin/api/me/api-keys") {
+    if (!requireUser(ctx)) return;
+    const rows = listApiKeys(ctx.auth.user!.id).map((r) => ({
+      id: r.id,
+      name: r.name,
+      key_prefix: r.key_prefix,
+      created_at: r.created_at,
+      last_used_at: r.last_used_at,
+      revoked_at: r.revoked_at,
+    }));
+    return sendJson(res, 200, { api_keys: rows });
+  }
+
+  // POST /admin/api/me/api-keys { name } — mint a new bearer token. Plaintext
+  // is returned EXACTLY ONCE in the response — the UI must surface it
+  // immediately because the hash-only storage means we can't show it again.
+  if (req.method === "POST" && pathname === "/admin/api/me/api-keys") {
+    if (!requireUser(ctx)) return;
+    const body = await readJsonBody<{ name?: unknown }>(req);
+    const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : "default";
+    const { token, row } = createApiKey(ctx.auth.user!.id, name);
+    return sendJson(res, 200, {
+      token,
+      api_key: {
+        id: row.id,
+        name: row.name,
+        key_prefix: row.key_prefix,
+        created_at: row.created_at,
+        last_used_at: row.last_used_at,
+        revoked_at: row.revoked_at,
+      },
+    });
+  }
+
+  // DELETE /admin/api/me/api-keys/:id — revoke (soft-delete) one of the
+  // current user's keys. We use soft-delete so future logs can still attribute
+  // older requests to a named key.
+  {
+    const m = /^\/admin\/api\/me\/api-keys\/(\d+)$/.exec(pathname);
+    if (m && req.method === "DELETE") {
+      if (!requireUser(ctx)) return;
+      const ok = revokeApiKey(ctx.auth.user!.id, Number(m[1]));
+      if (!ok) return sendError(res, 404, "not_found", "no such api key");
+      return sendJson(res, 200, { revoked: true });
+    }
+  }
+
+  // GET /admin/api/me/upstream-keys — BYOK provider list (no ciphertext).
+  if (req.method === "GET" && pathname === "/admin/api/me/upstream-keys") {
+    if (!requireUser(ctx)) return;
+    return sendJson(res, 200, { upstream_keys: listUpstreamKeys(ctx.auth.user!.id) });
+  }
+
+  // PUT /admin/api/me/upstream-keys/:providerId { apiKey } — set / replace.
+  // DELETE /admin/api/me/upstream-keys/:providerId — clear.
+  {
+    const m = /^\/admin\/api\/me\/upstream-keys\/([A-Za-z0-9_-]+)$/.exec(pathname);
+    if (m) {
+      if (!requireUser(ctx)) return;
+      const providerId = m[1];
+      // Validate the provider exists — both built-in and any user-declared
+      // generic are acceptable targets.
+      if (!PROVIDER_LIST.find((p) => p.id === providerId)) {
+        return sendError(res, 404, "unknown_provider", `provider ${providerId} not registered`);
+      }
+      if (req.method === "PUT") {
+        const body = await readJsonBody<{ apiKey?: unknown }>(req);
+        if (typeof body.apiKey !== "string" || !body.apiKey.trim()) {
+          return sendError(res, 400, "invalid_body", "apiKey is required");
+        }
+        const { key } = loadMasterKey(cfg.dataDir);
+        setUpstreamKey(ctx.auth.user!.id, providerId, body.apiKey.trim(), key);
+        return sendJson(res, 200, { ok: true, provider_id: providerId });
+      }
+      if (req.method === "DELETE") {
+        const deleted = deleteUpstreamKey(ctx.auth.user!.id, providerId);
+        return sendJson(res, 200, { deleted });
+      }
+    }
+  }
+
+  // GET / PUT /admin/api/auth/register-policy — admin-only toggle for
+  // self-registration. Mirrors the settings.auth.allowRegister setting but
+  // gives the UI a focused endpoint without exposing the whole settings KV.
+  if (pathname === "/admin/api/auth/register-policy") {
+    if (req.method === "GET") {
+      if (!requireAdmin(ctx)) return;
+      let allowRegister = false;
+      try {
+        allowRegister = getSetting("auth.allowRegister") === "1";
+      } catch {
+        /* default false */
+      }
+      return sendJson(res, 200, { allowRegister });
+    }
+    if (req.method === "PUT") {
+      if (!requireAdmin(ctx)) return;
+      const body = await readJsonBody<{ allowRegister?: unknown }>(req);
+      if (typeof body.allowRegister !== "boolean") {
+        return sendError(res, 400, "invalid_body", "allowRegister: boolean is required");
+      }
+      setSetting("auth.allowRegister", body.allowRegister ? "1" : "0");
+      log.info(`auth.allowRegister set to ${body.allowRegister} via admin UI`);
+      return sendJson(res, 200, { allowRegister: body.allowRegister });
+    }
+  }
+
+  // PATCH /admin/api/users/:id { displayName?, isAdmin?, status?, password? }
+  {
+    const m = /^\/admin\/api\/users\/(\d+)$/.exec(pathname);
+    if (m && req.method === "PATCH") {
+      if (!requireAdmin(ctx)) return;
+      const id = Number(m[1]);
+      const body = await readJsonBody<{
+        displayName?: unknown;
+        isAdmin?: unknown;
+        status?: unknown;
+        password?: unknown;
+      }>(req);
+      const patch: Parameters<typeof updateUser>[1] = {};
+      if (typeof body.displayName === "string" || body.displayName === null) {
+        patch.displayName = body.displayName as string | null;
+      }
+      if (typeof body.isAdmin === "boolean") patch.isAdmin = body.isAdmin;
+      if (body.status === "active" || body.status === "disabled") patch.status = body.status;
+      if (typeof body.password === "string") {
+        if (body.password.length < 8) {
+          return sendError(res, 400, "weak_password", "password must be at least 8 characters");
+        }
+        patch.passwordHash = await hashPassword(body.password);
+      }
+      const updated = updateUser(id, patch);
+      if (!updated) return sendError(res, 404, "not_found", `no user with id ${id}`);
+      return sendJson(res, 200, { user: publicUser(updated) });
+    }
   }
 
   if (req.method === "GET" && pathname === "/admin/api/providers") {
@@ -644,22 +1130,280 @@ async function handleApi(ctx: RouteContext): Promise<void> {
       maxOutputTokens: targetModelMeta?.maxOutputTokens ?? baseTarget.maxOutputTokens,
     };
     try {
-      const result = applyCodex(target, { host: cfg.host, port: cfg.port });
-      log.info(
-        `codex profile applied via webui: provider=${provider.id} model=${body.modelId} ` +
-          `authJsonOwnerBefore=${result.authJsonOwnerBefore} backupTs=${result.backupTs}`
+      const userId = ctx.auth.user?.id ?? null;
+      // First-ever apply for this user (or local timeline): snapshot the
+      // pre-existing ~/.codex state as `initial` so the user can always
+      // roll back to "what was there before mimo2codex touched anything".
+      // Server-mode containers can't read the user's machine, so this is
+      // best-effort and only fires in local mode where the path resolves
+      // to the host filesystem.
+      if (cfg.authMode !== "on" && !hasInitialHistory(userId)) {
+        try {
+          captureInitialCodexSnapshot(userId);
+        } catch {
+          // If ~/.codex doesn't exist yet, that's the genuine "initial" —
+          // skip the snapshot; future restores simply have no rollback target.
+        }
+      }
+
+      // Render the would-be config from a single source of truth. Both modes
+      // store these strings in history; local mode also calls applyCodex()
+      // to write them to disk via the existing backup-aware path.
+      const { authJson, configToml } = buildCcSwitchFiles(
+        { host: cfg.host, port: cfg.port },
+        target
       );
+
+      let backupTs: number | null = null;
+      let authBackup: string | null = null;
+      let tomlBackup: string | null = null;
+      let authJsonOwnerBefore: "mimo2codex" | "external" | "missing" = "missing";
+
+      if (cfg.authMode !== "on") {
+        const result = applyCodex(target, { host: cfg.host, port: cfg.port });
+        backupTs = result.backupTs;
+        authBackup = result.authBackup;
+        tomlBackup = result.tomlBackup;
+        authJsonOwnerBefore = result.authJsonOwnerBefore;
+        log.info(
+          `codex profile applied via webui: provider=${provider.id} model=${body.modelId} ` +
+            `authJsonOwnerBefore=${result.authJsonOwnerBefore} backupTs=${result.backupTs}`
+        );
+      } else {
+        log.info(
+          `codex profile recorded for user=${userId ?? "?"}: provider=${provider.id} model=${body.modelId} ` +
+            `(server-mode — no local file write)`
+        );
+      }
+
+      const history = appendCodexHistory({
+        userId,
+        kind: "apply",
+        providerId: provider.id,
+        modelId: body.modelId,
+        authJson,
+        configToml,
+        note: null,
+      });
+
       return sendJson(res, 200, {
         ok: true,
-        backupTs: result.backupTs,
-        authBackup: result.authBackup,
-        tomlBackup: result.tomlBackup,
-        authJsonOwnerBefore: result.authJsonOwnerBefore,
+        backupTs,
+        authBackup,
+        tomlBackup,
+        authJsonOwnerBefore,
         restartRequired: true,
+        historyId: history.id,
+        // In server mode, the UI must show the download CTA instead of the
+        // "we wrote files locally" success message.
+        bundleUrl:
+          cfg.authMode === "on"
+            ? `/admin/api/codex-history/${history.id}/bundle`
+            : null,
       });
     } catch (err) {
       log.error("codex-apply failed", { error: (err as Error).message });
       return sendError(res, 500, "apply_failed", (err as Error).message);
+    }
+  }
+
+  // GET /admin/api/codex-history — list rows for the current user (or the
+  // shared local timeline when authMode≠on).
+  if (req.method === "GET" && pathname === "/admin/api/codex-history") {
+    if (cfg.authMode === "on" && !ctx.auth.user) {
+      return sendError(res, 401, "no_session", "session required");
+    }
+    const userId = cfg.authMode === "on" ? ctx.auth.user?.id ?? null : null;
+    const rows = listCodexHistory(userId, 50).map((r) => ({
+      id: r.id,
+      ts: r.ts,
+      kind: r.kind,
+      provider_id: r.provider_id,
+      model_id: r.model_id,
+      note: r.note,
+    }));
+    return sendJson(res, 200, { history: rows });
+  }
+
+  // GET /admin/api/codex-history/:id/bundle — return the rendered files +
+  // ready-to-run apply scripts for either platform.
+  {
+    const m = /^\/admin\/api\/codex-history\/(\d+)\/bundle$/.exec(pathname);
+    if (m && req.method === "GET") {
+      const id = Number(m[1]);
+      const row = getCodexHistoryById(id);
+      if (!row) return sendError(res, 404, "not_found", `no history row id=${id}`);
+      // Scope check: per-user in server mode; in local mode only the NULL
+      // (shared) timeline is accessible.
+      if (cfg.authMode !== "on" && row.user_id !== null) {
+        return sendError(res, 403, "forbidden", "row belongs to a user; local mode cannot access");
+      }
+      if (cfg.authMode === "on" && (row.user_id == null || row.user_id !== ctx.auth.user?.id)) {
+        return sendError(res, 403, "forbidden", "row does not belong to the current user");
+      }
+      // We return the stored auth.json verbatim — including the
+      // "mimo2codex-local" placeholder. Users go to /admin/account, mint a
+      // key explicitly, and paste it into the downloaded auth.json before
+      // running the apply script. Earlier iterations auto-minted a key per
+      // download, which was confusing (silent key creation, multiple keys
+      // accumulating for one user, no clear UX moment for the user to copy
+      // the value somewhere). Explicit > implicit.
+      return sendJson(res, 200, {
+        history: {
+          id: row.id,
+          ts: row.ts,
+          kind: row.kind,
+          provider_id: row.provider_id,
+          model_id: row.model_id,
+          note: row.note,
+        },
+        files: {
+          authJson: row.auth_json,
+          configToml: row.config_toml,
+        },
+        scripts: {
+          posix: renderApplyShellScript({
+            authJson: row.auth_json,
+            configToml: row.config_toml,
+            providerId: row.provider_id ?? "?",
+            modelId: row.model_id ?? "?",
+          }),
+          powershell: renderApplyPowerShellScript({
+            authJson: row.auth_json,
+            configToml: row.config_toml,
+            providerId: row.provider_id ?? "?",
+            modelId: row.model_id ?? "?",
+          }),
+        },
+        // Kept for response-shape stability with previous releases.
+        mintedKey: null,
+      });
+    }
+  }
+
+  // POST /admin/api/codex-import { authJson, configToml, providerId?, modelId?, note? }
+  // User uploads an auth.json + config.toml pair (typically from another
+  // machine) and we file it as a new history row of kind='apply'. Same UX
+  // shape as a normal apply: local mode also writes the files to ~/.codex/,
+  // server mode just records and the user later downloads the bundle.
+  if (req.method === "POST" && pathname === "/admin/api/codex-import") {
+    if (cfg.authMode === "on" && !ctx.auth.user) {
+      return sendError(res, 401, "no_session", "session required");
+    }
+    const body = await readJsonBody<{
+      authJson?: unknown;
+      configToml?: unknown;
+      providerId?: unknown;
+      modelId?: unknown;
+      note?: unknown;
+    }>(req);
+    if (typeof body.authJson !== "string" || typeof body.configToml !== "string") {
+      return sendError(res, 400, "invalid_body", "authJson and configToml are required strings");
+    }
+    if (body.authJson.length > 64 * 1024 || body.configToml.length > 64 * 1024) {
+      return sendError(res, 400, "too_large", "uploaded file exceeds 64KB");
+    }
+    // Cheap shape validation so users can't accidentally upload non-JSON or
+    // non-TOML and end up with broken Codex configs at restore time.
+    try {
+      const parsed = JSON.parse(body.authJson);
+      if (!parsed || typeof parsed !== "object") throw new Error("not an object");
+    } catch (err) {
+      return sendError(res, 400, "invalid_auth_json", `auth.json must be valid JSON: ${(err as Error).message}`);
+    }
+    const userId = cfg.authMode === "on" ? ctx.auth.user?.id ?? null : null;
+    if (cfg.authMode !== "on" && !hasInitialHistory(userId)) {
+      try {
+        captureInitialCodexSnapshot(userId);
+      } catch {
+        /* best effort */
+      }
+    }
+    // In local mode we write the uploaded files straight to disk so users get
+    // the same one-click experience as a regular Apply.
+    if (cfg.authMode !== "on") {
+      try {
+        const authPath = authJsonPath();
+        const tomlPath = configTomlPath();
+        // Hand-roll the backup ts so both halves stay paired.
+        const ts = Date.now();
+        // Lazily import the file helpers — they're already pulled in by
+        // applyCodex's path, but referencing through "../codex/files.js" keeps
+        // the import surface tidy.
+        const { atomicWrite, backupFile } = await import("../codex/files.js");
+        backupFile(authPath, ts);
+        backupFile(tomlPath, ts);
+        atomicWrite(authPath, body.authJson);
+        atomicWrite(tomlPath, body.configToml);
+      } catch (err) {
+        return sendError(res, 500, "write_failed", (err as Error).message);
+      }
+    }
+    const history = appendCodexHistory({
+      userId,
+      kind: "apply",
+      providerId: typeof body.providerId === "string" ? body.providerId : null,
+      modelId: typeof body.modelId === "string" ? body.modelId : null,
+      authJson: body.authJson,
+      configToml: body.configToml,
+      note: typeof body.note === "string" ? body.note : "imported from local",
+    });
+    log.info(
+      `codex import recorded: user=${userId ?? "?"} historyId=${history.id} ` +
+        `provider=${typeof body.providerId === "string" ? body.providerId : "n/a"}`
+    );
+    return sendJson(res, 200, {
+      ok: true,
+      historyId: history.id,
+      restartRequired: cfg.authMode !== "on",
+      bundleUrl:
+        cfg.authMode === "on"
+          ? `/admin/api/codex-history/${history.id}/bundle`
+          : null,
+    });
+  }
+
+  // GET /admin/api/codex-current-bundle — "export the currently-active config
+  // to my local machine" entry point. Finds the most recent apply (per-user
+  // in server mode, NULL timeline in local mode) and reuses the bundle
+  // endpoint's renderer + mint-key flow.
+  if (req.method === "GET" && pathname === "/admin/api/codex-current-bundle") {
+    if (cfg.authMode === "on" && !ctx.auth.user) {
+      return sendError(res, 401, "no_session", "session required");
+    }
+    const userId = cfg.authMode === "on" ? ctx.auth.user?.id ?? null : null;
+    const history = listCodexHistory(userId, 50);
+    const target = history.find((r) => r.kind !== "initial") ?? history[0];
+    if (!target) {
+      return sendError(
+        res,
+        404,
+        "no_history",
+        "no Codex config has been applied yet — apply one from this page first"
+      );
+    }
+    // Redirect to the existing bundle endpoint so all the mint-key + script-
+    // rendering logic stays in one place.
+    res.statusCode = 302;
+    res.setHeader("Location", `/admin/api/codex-history/${target.id}/bundle`);
+    res.end();
+    return;
+  }
+
+  // DELETE /admin/api/codex-history/:id — drop a non-initial row from the
+  // current user's timeline. Initial rows are protected (they're the only
+  // path back to the pre-mimo2codex state).
+  {
+    const m = /^\/admin\/api\/codex-history\/(\d+)$/.exec(pathname);
+    if (m && req.method === "DELETE") {
+      if (cfg.authMode === "on" && !ctx.auth.user) {
+        return sendError(res, 401, "no_session", "session required");
+      }
+      const id = Number(m[1]);
+      const userId = cfg.authMode === "on" ? ctx.auth.user?.id ?? null : null;
+      const ok = deleteCodexHistory(id, userId);
+      if (!ok) return sendError(res, 400, "delete_blocked", "row missing or is the protected initial snapshot");
+      return sendJson(res, 200, { deleted: true });
     }
   }
 
@@ -702,6 +1446,24 @@ async function handleApi(ctx: RouteContext): Promise<void> {
     try {
       restoreCodex(body.ts);
       log.info(`codex profile restored from backup ts=${body.ts}`);
+      // Record the restore in history (local-mode timeline). We re-read the
+      // now-restored files so the entry reflects what was actually written.
+      try {
+        const userId = cfg.authMode === "on" ? ctx.auth.user?.id ?? null : null;
+        const authPath = authJsonPath();
+        const tomlPath = configTomlPath();
+        appendCodexHistory({
+          userId,
+          kind: "restore",
+          providerId: null,
+          modelId: null,
+          authJson: existsSync(authPath) ? readFileSync(authPath, "utf-8") : "",
+          configToml: existsSync(tomlPath) ? readFileSync(tomlPath, "utf-8") : "",
+          note: `restored from backup ts=${body.ts}`,
+        });
+      } catch {
+        // History recording is best-effort; the actual restore already succeeded.
+      }
       return sendJson(res, 200, { ok: true, restartRequired: true });
     } catch (err) {
       const msg = (err as Error).message;
@@ -1159,12 +1921,13 @@ function serveStatic(res: ServerResponse, pathname: string): void {
 export async function handleAdmin(
   cfg: Config,
   req: IncomingMessage,
-  res: ServerResponse
+  res: ServerResponse,
+  auth: AuthContext = { user: null, via: "none" }
 ): Promise<void> {
   const { pathname, query } = parseUrl(req);
   try {
     if (pathname.startsWith("/admin/api/")) {
-      await handleApi({ cfg, req, res, pathname, query });
+      await handleApi({ cfg, req, res, pathname, query, auth });
       return;
     }
     if (req.method === "GET" && (pathname === "/admin" || pathname.startsWith("/admin/"))) {
@@ -1176,4 +1939,67 @@ export async function handleAdmin(
     log.error("admin handler error", { error: (err as Error).message, stack: (err as Error).stack });
     if (!res.headersSent) sendError(res, 500, "internal_error", (err as Error).message);
   }
+}
+
+function requireUser(ctx: RouteContext): boolean {
+  // Per-user endpoints (BYOK, my-API-keys) only exist when authMode=on AND
+  // the caller has a session. In local mode the response makes no sense —
+  // there's nothing to scope by.
+  if (ctx.cfg.authMode !== "on") {
+    sendError(
+      ctx.res,
+      400,
+      "auth_off",
+      "this endpoint requires authMode=on (per-user state is not tracked in local mode)"
+    );
+    return false;
+  }
+  if (!ctx.auth.user) {
+    sendError(ctx.res, 401, "no_session", "session required");
+    return false;
+  }
+  return true;
+}
+
+function requireAdmin(ctx: RouteContext): boolean {
+  // Admin endpoints are reachable in two modes:
+  //   - authMode≠on: no users exist; treat caller as having full access.
+  //   - authMode=on: require an authenticated admin user.
+  if (ctx.cfg.authMode !== "on") return true;
+  if (!ctx.auth.user || ctx.auth.user.is_admin !== 1) {
+    sendError(ctx.res, 403, "forbidden", "admin privileges required");
+    return false;
+  }
+  return true;
+}
+
+function safeCountUsers(): number {
+  try {
+    return countUsers();
+  } catch {
+    return 0;
+  }
+}
+
+// Snapshot the current ~/.codex/auth.json + config.toml into history as
+// `initial`. Called once per user (or once for the shared local timeline)
+// before the first apply, so we always have a rollback target representing
+// the user's pre-mimo2codex state.
+function captureInitialCodexSnapshot(userId: number | null): void {
+  const authPath = authJsonPath();
+  const tomlPath = configTomlPath();
+  const auth = existsSync(authPath) ? readFileSync(authPath, "utf-8") : null;
+  const toml = existsSync(tomlPath) ? readFileSync(tomlPath, "utf-8") : null;
+  // If neither file exists, there's no "original" to preserve — but we still
+  // record an empty initial row so subsequent restores have a sentinel that
+  // means "remove our writes" (consumers treat empty strings as 'delete').
+  appendCodexHistory({
+    userId,
+    kind: "initial",
+    providerId: null,
+    modelId: null,
+    authJson: auth ?? "",
+    configToml: toml ?? "",
+    note: "snapshot of pre-existing ~/.codex state",
+  });
 }

@@ -46,6 +46,10 @@ RUN apk add --no-cache nodejs libstdc++
 ENV NODE_ENV=production
 ENV PORT=8788
 ENV MIMO2CODEX_HOST=0.0.0.0
+# Containerized deployments are exposed to other people by definition, so
+# auth is on by default. Override with MIMO2CODEX_AUTH=off only for trusted
+# closed-network setups. See README for the bootstrap-URL flow on first run.
+ENV MIMO2CODEX_AUTH=on
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
