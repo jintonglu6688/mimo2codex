@@ -18,8 +18,13 @@
   Repository name on Docker Hub. Default: mimo2codex-docweb.
 
 .PARAMETER Tags
-  Tags to apply. Default: @('latest'). A 'sha-<short>' tag is auto-appended
-  when invoked inside a git checkout.
+  Tags to apply. Default (when omitted): the version read from the repo-root
+  package.json (e.g. "0.4.2") + "latest". A `sha-<short>` tag is always auto-
+  appended when invoked inside a git checkout, regardless of -Tags.
+
+  Why both: a semver tag (0.4.2) is what your k8s / docker-compose manifest
+  should pin to so updates trigger a rollout; `latest` is for casual
+  `docker run` users. If you only want one of them, pass -Tags explicitly.
 
 .PARAMETER Platforms
   Target platforms (comma list in buildx form). Default: linux/amd64,linux/arm64.
@@ -33,22 +38,27 @@
   (overrides Platforms to the host arch). Useful for smoke-testing.
 
 .EXAMPLE
-  pwsh docweb/scripts/docker-build-push.ps1 -Username myuser
+  # Default: tags = <package.json version>, latest, sha-<short>
+  pwsh docweb/scripts/docker-build-push.ps1
 
 .EXAMPLE
   # Local smoke test, no push
-  pwsh docweb/scripts/docker-build-push.ps1 -Username myuser -LoadLocal -NoPush
+  pwsh docweb/scripts/docker-build-push.ps1 -LoadLocal -NoPush
 
 .EXAMPLE
-  # Tag latest + v0.4.1 + sha-xxxxxxx, push both arches
-  pwsh docweb/scripts/docker-build-push.ps1 -Username myuser -Tags latest,v0.4.1
+  # Override the auto-detected version with explicit tags
+  pwsh docweb/scripts/docker-build-push.ps1 -Tags 0.4.2,latest
+
+.EXAMPLE
+  # Only the semver tag, no 'latest' (recommended for production releases)
+  pwsh docweb/scripts/docker-build-push.ps1 -Tags 0.4.2
 #>
 
 [CmdletBinding()]
 param(
   [string]$Username = $env:DOCKERHUB_USERNAME,
   [string]$Repo = "mimo2codex-docweb",
-  [string[]]$Tags = @("latest"),
+  [string[]]$Tags = @(),
   [string]$Platforms = "linux/amd64,linux/arm64",
   [switch]$NoPush,
   [switch]$LoadLocal
@@ -132,7 +142,37 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptDir "..\..")).Path
 $dockerfile = (Resolve-Path (Join-Path $scriptDir "..\Dockerfile")).Path
 
-# ── Auto-tag with git short SHA when available ─────────────────────────────
+# ── Default Tags from repo-root package.json `version` ─────────────────────
+# Without this, every push collapses onto `:latest` and k8s manifests pinning
+# to it have no signal that the image actually changed. A semver tag lets
+# operators bump their manifest from 0.4.1 → 0.4.2 and trigger a rolling
+# update on the next reconcile.
+function Get-ProjectVersion {
+  param([string]$RootDir)
+  $pkgPath = Join-Path $RootDir "package.json"
+  if (-not (Test-Path $pkgPath)) { return $null }
+  try {
+    $obj = Get-Content $pkgPath -Raw | ConvertFrom-Json
+    if ($obj.version) { return [string]$obj.version }
+  } catch {
+    # malformed package.json — fall through
+  }
+  return $null
+}
+
+$tagsExplicit = $PSBoundParameters.ContainsKey('Tags') -and $Tags.Count -gt 0
+if (-not $tagsExplicit) {
+  $autoVersion = Get-ProjectVersion -RootDir $repoRoot
+  if ($autoVersion) {
+    $Tags = @($autoVersion, "latest")
+    Write-Host "Auto-detected version from package.json: $autoVersion" -ForegroundColor DarkGray
+  } else {
+    $Tags = @("latest")
+    Write-Host "No package.json version detected — tagging 'latest' only" -ForegroundColor Yellow
+  }
+}
+
+# ── Always append git short SHA for audit trail ────────────────────────────
 $gitSha = $null
 Push-Location $repoRoot
 try {
