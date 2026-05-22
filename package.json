@@ -51,7 +51,17 @@
     "release:patch": "node scripts/release.mjs patch",
     "release:minor": "node scripts/release.mjs minor",
     "release:major": "node scripts/release.mjs major",
-    "release:beta": "node scripts/release.mjs prerelease --preid beta"
+    "release:beta": "node scripts/release.mjs prerelease --preid beta",
+    "brand:render": "npx --yes sharp-cli@4 -i package/brand/logo.svg -o package/brand/logo-1024.png resize 1024 1024 --withoutEnlargement=false",
+    "brand:icons": "node scripts/brand-render-icons.mjs",
+    "sidecar:build": "node scripts/build-sidecar.mjs",
+    "probe-prebuild": "node scripts/probe-prebuild.mjs",
+    "desktop:install": "npm --prefix package/desktop install",
+    "desktop:dev": "npm --prefix package/desktop run dev",
+    "desktop:build": "npm --prefix package/desktop run build",
+    "desktop:pack": "npm --prefix package/desktop run pack",
+    "desktop:pack:local": "node scripts/pack-desktop-local.mjs",
+    "desktop:test": "npm --prefix package/desktop run test"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",

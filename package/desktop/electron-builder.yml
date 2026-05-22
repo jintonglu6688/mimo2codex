@@ -1,0 +1,77 @@
+appId: com.chengj.mimo2codex
+productName: mimo2codex
+copyright: "© 2026 chengj"
+
+directories:
+  output: release
+  buildResources: ../
+
+# What gets packed INSIDE the asar
+files:
+  - "dist/**/*"
+  - "node_modules/**/*"
+  - "package.json"
+
+# What gets dropped under resources/ next to the asar
+# - sidecar: the bundled Node + dist/cli.js (produced by `npm run sidecar:build`)
+# - branding-*: tray template + colored ico for runtime icon load
+extraResources:
+  - from: "resources/sidecar"
+    to: "sidecar"
+  - from: "../win"
+    to: "branding-win"
+    filter: ["icon.ico", "tray.ico"]
+  - from: "../mac"
+    to: "branding-mac"
+    filter: ["tray-Template*.png"]
+
+mac:
+  category: public.app-category.developer-tools
+  icon: "../mac/icon.icns"
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  entitlements: "../mac/entitlements.mac.plist"
+  entitlementsInherit: "../mac/entitlements.mac.plist"
+  # Menu-bar-only agent app: hide from Dock and Cmd+Tab (Task 9.1.1 — A2).
+  # Info.plist `LSUIElement` is what runtime `app.dock?.hide()` *should*
+  # have been all along — declarative, no startup flicker.
+  extendInfo:
+    LSUIElement: true
+    NSHumanReadableCopyright: "© 2026 chengj"
+
+dmg:
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 140
+      y: 200
+      type: file
+    - x: 400
+      y: 200
+      type: link
+      path: /Applications
+  iconSize: 96
+  artifactName: "mimo2codex-desktop-${version}-mac-${arch}.${ext}"
+
+win:
+  icon: "../win/icon.ico"
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: mimo2codex
+  installerIcon: "../win/icon.ico"
+  uninstallerIcon: "../win/icon.ico"
+  installerHeaderIcon: "../win/icon.ico"
+  # Default OFF — most users want to preserve their config across reinstalls.
+  deleteAppDataOnUninstall: false
+  artifactName: "mimo2codex-desktop-${version}-win-${arch}.${ext}"
