@@ -1,9 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Config } from "../config.js";
-import { PROVIDER_LIST, PROVIDERS } from "../providers/registry.js";
+import { refreshProviderRuntimes } from "../config.js";
+import { initRegistry, PROVIDER_LIST, PROVIDERS } from "../providers/registry.js";
 import {
   aggregateErrors,
   aggregateLatency,
@@ -41,6 +42,7 @@ import { buildSnippetBundle, resolveSnippetTarget, tomlProviderKeyFor } from "..
 import {
   GenericLoaderError,
   locateProvidersFile,
+  loadGenericProviders,
   readSpecsFromFile,
   writeSpecsToFile,
 } from "../providers/genericLoader.js";
@@ -260,6 +262,107 @@ function providerStateFor(cfg: Config): Array<Record<string, unknown>> {
       flags: runtime?.flags ?? {},
     };
   });
+}
+
+function hotReloadProviders(cfg: Config): void {
+  const generics = loadGenericProviders(process.env, cfg.dataDir);
+  initRegistry(generics);
+  refreshProviderRuntimes(cfg, process.env);
+}
+
+function dotenvPathFor(cfg: Config): string | null {
+  if (!cfg.dataDir) return null;
+  return join(cfg.dataDir, ".env");
+}
+
+function formatDotenvValue(value: string): string {
+  if (!/[#\s"'\\]/.test(value)) return value;
+  return JSON.stringify(value);
+}
+
+function upsertDotenvValues(filePath: string, values: Record<string, string>): void {
+  const keys = new Set(Object.keys(values));
+  const lines = existsSync(filePath) ? readFileSync(filePath, "utf-8").split(/\r?\n/) : [];
+  const kept: string[] = [];
+  for (const line of lines) {
+    if (!line) continue;
+    const trimmed = line.replace(/^[ \t]+/, "");
+    const body = trimmed.startsWith("export ") ? trimmed.slice(7).replace(/^[ \t]+/, "") : trimmed;
+    const eq = body.indexOf("=");
+    const key = eq > 0 ? body.slice(0, eq).trim() : "";
+    if (keys.has(key)) continue;
+    kept.push(line);
+  }
+  for (const [key, value] of Object.entries(values)) {
+    kept.push(`${key}=${formatDotenvValue(value)}`);
+  }
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, kept.join("\n") + "\n", "utf-8");
+}
+
+function stripProviderRuntimeSecrets(providers: unknown[]): GenericProviderSpec[] {
+  return providers.map((provider) => {
+    if (!provider || typeof provider !== "object") {
+      return provider as GenericProviderSpec;
+    }
+
+    const copy = { ...(provider as Record<string, unknown>) };
+    delete copy.apiKey;
+    delete copy.serviceApiKey;
+    delete copy.upstreamApiKey;
+    return copy as unknown as GenericProviderSpec;
+  });
+}
+
+function extractInlineProviderRuntimeInputs(
+  providers: unknown[]
+): Array<{ id: string; apiKey: string; baseUrl?: string }> {
+  const result: Array<{ id: string; apiKey: string; baseUrl?: string }> = [];
+  for (const provider of providers) {
+    if (!provider || typeof provider !== "object") continue;
+    const obj = provider as Record<string, unknown>;
+    const id = typeof obj.id === "string" ? obj.id.trim() : "";
+    const apiKey =
+      typeof obj.apiKey === "string"
+        ? obj.apiKey.trim()
+        : typeof obj.serviceApiKey === "string"
+          ? obj.serviceApiKey.trim()
+          : typeof obj.upstreamApiKey === "string"
+            ? obj.upstreamApiKey.trim()
+            : "";
+    if (!id || !apiKey) continue;
+    const baseUrl = typeof obj.baseUrl === "string" && obj.baseUrl.trim() ? obj.baseUrl.trim() : undefined;
+    result.push({ id, apiKey, baseUrl });
+  }
+  return result;
+}
+
+function writeInlineProviderRuntimes(
+  cfg: Config,
+  inputs: Array<{ id: string; apiKey: string; baseUrl?: string }>
+): number {
+  if (!inputs.length) return 0;
+  const filePath = dotenvPathFor(cfg);
+  if (!filePath) {
+    throw new Error("no .env path is available — start with a data directory and admin enabled");
+  }
+
+  const values: Record<string, string> = {};
+  for (const input of inputs) {
+    const provider = PROVIDERS[input.id];
+    if (!provider) continue;
+    values[provider.envKeys[0]] = input.apiKey;
+    if (input.baseUrl) {
+      values[provider.baseUrlEnv] = input.baseUrl;
+    }
+  }
+
+  if (!Object.keys(values).length) return 0;
+  upsertDotenvValues(filePath, values);
+  for (const [key, value] of Object.entries(values)) {
+    process.env[key] = value;
+  }
+  return inputs.length;
 }
 
 interface RouteContext {
@@ -919,9 +1022,9 @@ async function handleApi(ctx: RouteContext): Promise<void> {
 
   // PUT /admin/api/generic-providers
   // Body: { providers: GenericProviderSpec[] }
-  // Validates every spec, then atomically writes to providers.json. A
-  // restart is still required for the change to take effect (the in-memory
-  // registry is initialized once at startup).
+  // Validates every spec, atomically writes to providers.json, then refreshes
+  // the in-memory registry and provider runtimes so model listing/routing sees
+  // the change immediately.
   if (req.method === "PUT" && pathname === "/admin/api/generic-providers") {
     const loc = locateProvidersFile(process.env, cfg.dataDir);
     if (!loc) {
@@ -941,22 +1044,95 @@ async function handleApi(ctx: RouteContext): Promise<void> {
     if (!Array.isArray(body.providers)) {
       return sendError(res, 400, "invalid_body", "body must include providers: array");
     }
+    const rawProviders = body.providers;
     try {
-      writeSpecsToFile(loc.path, body.providers as GenericProviderSpec[]);
+      const inlineRuntimes = extractInlineProviderRuntimeInputs(rawProviders);
+      writeSpecsToFile(loc.path, stripProviderRuntimeSecrets(rawProviders));
+      hotReloadProviders(cfg);
+      const runtimeCount = writeInlineProviderRuntimes(cfg, inlineRuntimes);
+      if (runtimeCount > 0) {
+        hotReloadProviders(cfg);
+      }
+      log.info(
+        `providers.json updated via admin UI (${rawProviders.length} entries, hot reloaded, ${runtimeCount} runtime key(s))`
+      );
+      return sendJson(res, 200, {
+        ok: true,
+        path: loc.path,
+        restartRequired: false,
+        hotReloaded: true,
+        serviceRuntimeUpdated: runtimeCount,
+      });
     } catch (err) {
       if (err instanceof GenericLoaderError) {
         return sendError(res, 400, "validation_failed", err.message);
       }
       return sendError(res, 500, "write_failed", (err as Error).message);
     }
-    log.info(
-      `providers.json updated via admin UI (${(body.providers as unknown[]).length} entries, restart required)`
-    );
-    return sendJson(res, 200, {
-      ok: true,
-      path: loc.path,
-      restartRequired: true,
-    });
+  }
+
+  // PUT /admin/api/service-provider-runtime/:providerId
+  // Body: { apiKey: string, baseUrl?: string }
+  // Writes the shared service-level upstream key to <dataDir>/.env and refreshes
+  // in-memory runtimes. This is distinct from /me/upstream-keys, which is BYOK
+  // per-user state and intentionally does not advertise models globally.
+  {
+    const m = /^\/admin\/api\/service-provider-runtime\/([A-Za-z0-9_-]+)$/.exec(pathname);
+    if (m && req.method === "PUT") {
+      if (!requireAdmin(ctx)) return;
+      const providerId = m[1];
+      if (!isProviderId(providerId)) {
+        return sendError(res, 404, "unknown_provider", `provider ${providerId} not registered`);
+      }
+      const filePath = dotenvPathFor(cfg);
+      if (!filePath) {
+        return sendError(
+          res,
+          400,
+          "no_writable_location",
+          "no .env path is available — start with a data directory and admin enabled"
+        );
+      }
+      let body: { apiKey?: unknown; baseUrl?: unknown };
+      try {
+        body = await readJsonBody<{ apiKey?: unknown; baseUrl?: unknown }>(req);
+      } catch (err) {
+        return sendError(res, 400, "invalid_json", (err as Error).message);
+      }
+      if (typeof body.apiKey !== "string" || !body.apiKey.trim()) {
+        return sendError(res, 400, "invalid_body", "apiKey is required");
+      }
+
+      const provider = PROVIDERS[providerId];
+      const apiKeyEnv = provider.envKeys[0];
+      const values: Record<string, string> = {
+        [apiKeyEnv]: body.apiKey.trim(),
+      };
+      if (typeof body.baseUrl === "string" && body.baseUrl.trim()) {
+        values[provider.baseUrlEnv] = body.baseUrl.trim();
+      }
+
+      try {
+        upsertDotenvValues(filePath, values);
+        for (const [key, value] of Object.entries(values)) {
+          process.env[key] = value;
+        }
+        hotReloadProviders(cfg);
+      } catch (err) {
+        return sendError(res, 500, "write_failed", (err as Error).message);
+      }
+
+      log.info(`service provider runtime updated: provider=${providerId} env=${apiKeyEnv}`);
+      return sendJson(res, 200, {
+        ok: true,
+        provider_id: providerId,
+        api_key_env: apiKeyEnv,
+        base_url_env: provider.baseUrlEnv,
+        api_key_present: true,
+        restartRequired: false,
+        hotReloaded: true,
+      });
+    }
   }
 
   // GET /admin/api/thinking-state

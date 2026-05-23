@@ -318,6 +318,98 @@ describe("admin REST", () => {
     expect((get.json as { maxDbSizeMb: number }).maxDbSizeMb).toBe(500);
   });
 
+  it("PUT /admin/api/generic-providers hot reloads provider registry and runtimes", async () => {
+    process.env.QWEN_API_KEY = "sk-qwen-from-env";
+    const put = await call("PUT", "/admin/api/generic-providers", {
+      providers: [
+        {
+          id: "qwen",
+          displayName: "Qwen",
+          baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          envKey: "QWEN_API_KEY",
+          defaultModel: "qwen-plus",
+          models: [{ id: "qwen-plus" }],
+        },
+      ],
+    });
+
+    expect(put.status).toBe(200);
+    expect((put.json as { restartRequired: boolean; hotReloaded: boolean }).restartRequired).toBe(false);
+    expect((put.json as { hotReloaded: boolean }).hotReloaded).toBe(true);
+
+    const providers = await call("GET", "/admin/api/providers");
+    const qwen = (
+      providers.json as {
+        providers: Array<{ id: string; enabled: boolean; default_model: string }>;
+      }
+    ).providers.find((p) => p.id === "qwen");
+    expect(qwen?.enabled).toBe(true);
+    expect(qwen?.default_model).toBe("qwen-plus");
+    expect(cfg.providers.qwen?.apiKey).toBe("sk-qwen-from-env");
+  });
+
+  it("PUT /admin/api/service-provider-runtime/:id writes .env and activates the provider without restart", async () => {
+    const providerPut = await call("PUT", "/admin/api/generic-providers", {
+      providers: [
+        {
+          id: "qwen",
+          displayName: "Qwen",
+          baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          envKey: "QWEN_API_KEY",
+          defaultModel: "qwen-plus",
+          models: [{ id: "qwen-plus" }],
+        },
+      ],
+    });
+    expect(providerPut.status).toBe(200);
+    expect(cfg.providers.qwen).toBeNull();
+
+    const runtimePut = await call("PUT", "/admin/api/service-provider-runtime/qwen", {
+      apiKey: "sk-qwen-service",
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    });
+
+    expect(runtimePut.status).toBe(200);
+    expect((runtimePut.json as { restartRequired: boolean; hotReloaded: boolean }).restartRequired).toBe(false);
+    expect((runtimePut.json as { hotReloaded: boolean }).hotReloaded).toBe(true);
+    expect(cfg.providers.qwen?.apiKey).toBe("sk-qwen-service");
+    expect(cfg.providers.qwen?.baseUrl).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1");
+
+    const envText = readFileSync(join(dataDir, ".env"), "utf-8");
+    expect(envText).toContain("QWEN_API_KEY=sk-qwen-service");
+    expect(envText).toContain("QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1");
+  });
+
+  it("PUT /admin/api/generic-providers accepts inline service keys without persisting them", async () => {
+    const put = await call("PUT", "/admin/api/generic-providers", {
+      providers: [
+        {
+          id: "qwen",
+          displayName: "Qwen",
+          baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          envKey: "QWEN_API_KEY",
+          defaultModel: "qwen-plus",
+          models: [{ id: "qwen-plus" }],
+          apiKey: "sk-qwen-inline",
+        },
+      ],
+    });
+
+    expect(put.status).toBe(200);
+    expect((put.json as { restartRequired: boolean; hotReloaded: boolean }).restartRequired).toBe(false);
+    expect((put.json as { hotReloaded: boolean }).hotReloaded).toBe(true);
+    expect((put.json as { serviceRuntimeUpdated: number }).serviceRuntimeUpdated).toBe(1);
+    expect(cfg.providers.qwen?.apiKey).toBe("sk-qwen-inline");
+
+    const envText = readFileSync(join(dataDir, ".env"), "utf-8");
+    expect(envText).toContain("QWEN_API_KEY=sk-qwen-inline");
+    expect(envText).toContain("QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1");
+
+    const providersText = readFileSync(join(dataDir, "providers.json"), "utf-8");
+    expect(providersText).not.toContain("sk-qwen-inline");
+    expect(providersText).not.toContain("apiKey");
+  });
+
   it("404 for unknown admin path", async () => {
     const r = await call("GET", "/admin/api/nope");
     expect(r.status).toBe(404);
