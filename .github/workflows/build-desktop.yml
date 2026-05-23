@@ -27,7 +27,13 @@ jobs:
             arch: x64
             target: win
             sidecar_platform: win32
-          - os: macos-13
+          # Both Mac arch flavors are built on the same Apple Silicon runner.
+          # macos-14 → arm64 = native; macos-14 → x64 = cross-build (electron-builder
+          # handles this fine since 24.x). macos-13 (Intel) is intentionally NOT
+          # used — free-tier capacity is poor and jobs sit in the queue for hours.
+          # Smoke-testing the x64 build on an arm64 host is impossible, but the
+          # produced .dmg + .zip can be verified on any Intel Mac post-release.
+          - os: macos-14
             arch: x64
             target: mac
             sidecar_platform: darwin
