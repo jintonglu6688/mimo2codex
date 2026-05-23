@@ -982,6 +982,30 @@ describe("reqToChat", () => {
       expect((chat as Record<string, unknown>).thinking).toBeUndefined();
     });
 
+    it("history with reasoning-only interrupted assistant → emits non-empty assistant content", () => {
+      const req: ResponsesRequest = {
+        model: "mimo-v2.5-pro",
+        input: [
+          { type: "message", role: "user", content: [{ type: "input_text", text: "q1" }] },
+          {
+            type: "reasoning",
+            id: "r1",
+            summary: [],
+            encrypted_content: "partial thinking from interrupted turn",
+            status: "completed",
+          } as unknown as Parameters<typeof reqToChat>[0]["input"] extends Array<infer U> ? U : never,
+          { type: "message", role: "user", content: [{ type: "input_text", text: "continue" }] },
+        ],
+      };
+
+      const chat = reqToChat(req);
+      const assistantMsg = chat.messages.find((m) => m.role === "assistant");
+
+      expect(assistantMsg?.reasoning_content).toBe("partial thinking from interrupted turn");
+      expect(typeof assistantMsg?.content).toBe("string");
+      expect((assistantMsg?.content as string).length).toBeGreaterThan(0);
+    });
+
     it("mixed-mode + forceHighEffort → backfills placeholder, KEEPS reasoning_effort='high' (thinking is on, so high effort is consistent)", () => {
       const req: ResponsesRequest = {
         model: "mimo-v2.5-pro",

@@ -469,13 +469,20 @@ interface AssemblyState {
   pendingAssistantText: string | null;
 }
 
+const REASONING_ONLY_ASSISTANT_CONTENT = "[assistant turn interrupted before visible content]";
+
 function flushAssistant(messages: ChatMessage[], state: AssemblyState): void {
   const hasReasoning = state.pendingReasoning !== null;
   const hasTools = state.pendingToolCalls.length > 0;
   const hasText = state.pendingAssistantText !== null;
   if (!hasReasoning && !hasTools && !hasText) return;
 
-  const msg: ChatMessage = { role: "assistant", content: hasText ? state.pendingAssistantText : null };
+  const content = hasText
+    ? state.pendingAssistantText
+    : hasTools
+      ? null
+      : REASONING_ONLY_ASSISTANT_CONTENT;
+  const msg: ChatMessage = { role: "assistant", content };
   if (hasTools) msg.tool_calls = state.pendingToolCalls;
   if (hasReasoning) msg.reasoning_content = state.pendingReasoning;
   messages.push(msg);
