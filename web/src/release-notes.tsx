@@ -14,7 +14,7 @@
 // CTA that navigates straight to it.
 
 import type { ReactNode } from "react";
-import { RobotOutlined, GlobalOutlined } from "@ant-design/icons";
+import { ApiOutlined, RobotOutlined, GlobalOutlined } from "@ant-design/icons";
 
 export interface BilingualText {
   en: string;
@@ -56,6 +56,22 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       zh: "代理的支持",
     },
     highlights: [
+      {
+        kind: "new",
+        icon: <ApiOutlined />,
+        title: {
+          en: "Provider changes apply without restarting",
+          zh: "提供商变更无需重启即可生效",
+        },
+        description: {
+          en: "Saving generic providers now hot-reloads the provider registry and runtime map immediately. Operators and external managers can either call the service-level runtime API or attach an inline apiKey/serviceApiKey to PUT /admin/api/generic-providers; the key is written to the data directory .env, stripped before providers.json is persisted, and those models appear in /v1/models right away. Per-user BYOK remains separate.",
+          zh: "保存通用提供商后，现在会立即热重载 provider registry 和 runtime map。运维或外部管理工具既可以调用服务级 runtime API，也可以在 PUT /admin/api/generic-providers 时给 provider 附带一次性 apiKey/serviceApiKey；服务端会把 key 写入数据目录 .env，持久化 providers.json 前移除该字段，让这些模型立刻出现在 /v1/models 中。每用户 BYOK 仍保持独立。",
+        },
+        location: {
+          en: "Admin API: PUT /admin/api/generic-providers and PUT /admin/api/service-provider-runtime/:providerId",
+          zh: "Admin API：PUT /admin/api/generic-providers 与 PUT /admin/api/service-provider-runtime/:providerId",
+        },
+      },
       {
         kind: "new",
         icon: <GlobalOutlined />,

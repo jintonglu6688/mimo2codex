@@ -19,6 +19,9 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 ## (v0.4.5 — 2026-05-22)
 
+- **[new]** **提供商管理热重载**：通过 `/admin/api/generic-providers` 保存 `providers.json` 后，会立即刷新内存中的 provider registry 和 runtime map；只要对应 key 已配置，新提供商会立刻出现在 `/admin/api/providers`、`/admin/api/codex-targets` 和 `/v1/models`，不再要求重启进程。
+- **[new]** **服务级上游 key API**：新增 `PUT /admin/api/service-provider-runtime/:providerId`，可把共享 provider API key 和可选 base URL 写入 `<dataDir>/.env`，同步更新 `process.env` 并热重载运行时。这是面向运维/外部服务管理器的接口，区别于每用户 BYOK 的 `/admin/api/me/upstream-keys`；需要让 provider 模型全局对外展示时应调用这个接口。
+- **[new]** **保存 provider 时一并写入服务级 key**：`PUT /admin/api/generic-providers` 现在支持在每个提交的 provider 上附带一次性 `apiKey` / `serviceApiKey`。服务端会把 key 写入 `<dataDir>/.env`，持久化 `providers.json` 前移除该字段，并在同一个请求里热重载，外部管理工具新增 provider 后可立即让模型出现在 `/v1/models`。
 - **[new]** **代理的支持**：mimo2codex 出站请求支持 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` 环境变量，行为与 `curl` / `git` 一致。Docker 部署在 `docker-compose.yml` 的 `environment:` 段声明，本地在 shell / `.env` 里 `export` 都可以。启动 banner 多一行 `proxy:` 回显当前生效的代理，env 是否被识别一眼能看到。`MIMO2CODEX_NO_PROXY_FROM_ENV=1` 可让 mimo2codex 无视代理 env（适合 shell 里为 `curl` / `git` 常驻了代理、但不想让 mimo2codex 跟着走的场景）。
 - **[opt]** 上游连接失败的日志补上 underlying cause 的 `code` 和 `message`（如 `ECONNREFUSED` / `ENOTFOUND` / `ETIMEDOUT`），同样的细节注入到 502 的 `UpstreamError.message`，代理端口写错、DNS 解析失败、超时这些情况一眼能分辨。
 - **[doc]** proxy-faq §1 改写：明确"系统代理 ≠ 进程代理"——Clash / Surge 等 UI 里点的"系统代理"开关不会自动导出 env；新增 🩺 自检 callout 让用户从启动 banner 一眼看出当前代理状态。§5 新增 `ECONNREFUSED <代理-host>:<代理-port>` 一行（含 Docker 里 `127.0.0.1` 的坑）。

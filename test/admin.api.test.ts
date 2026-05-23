@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { createServer, type Server } from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os, { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeDb, openDb } from "../src/db/index.js";
@@ -11,6 +11,8 @@ import { insertLog } from "../src/db/logs.js";
 let dataDir: string;
 let server: Server;
 let port: number;
+let originalQwenApiKey: string | undefined;
+let originalQwenBaseUrl: string | undefined;
 
 const cfg: Config = {
   host: "127.0.0.1",
@@ -36,6 +38,10 @@ const cfg: Config = {
 };
 
 beforeEach(async () => {
+  originalQwenApiKey = process.env.QWEN_API_KEY;
+  originalQwenBaseUrl = process.env.QWEN_BASE_URL;
+  delete process.env.QWEN_API_KEY;
+  delete process.env.QWEN_BASE_URL;
   dataDir = mkdtempSync(join(tmpdir(), "m2c-admin-test-"));
   openDb(dataDir);
   cfg.dataDir = dataDir;
@@ -51,6 +57,10 @@ afterEach(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   closeDb();
   rmSync(dataDir, { recursive: true, force: true });
+  if (originalQwenApiKey === undefined) delete process.env.QWEN_API_KEY;
+  else process.env.QWEN_API_KEY = originalQwenApiKey;
+  if (originalQwenBaseUrl === undefined) delete process.env.QWEN_BASE_URL;
+  else process.env.QWEN_BASE_URL = originalQwenBaseUrl;
 });
 
 async function call(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
@@ -192,6 +202,98 @@ describe("admin REST", () => {
     const get = await call("GET", "/admin/api/settings");
     expect(get.status).toBe(200);
     expect((get.json as { settings: Record<string, string> }).settings["ui.theme"]).toBe("dark");
+  });
+
+  it("PUT /admin/api/generic-providers hot reloads provider registry and runtimes", async () => {
+    process.env.QWEN_API_KEY = "sk-qwen-from-env";
+    const put = await call("PUT", "/admin/api/generic-providers", {
+      providers: [
+        {
+          id: "qwen",
+          displayName: "Qwen",
+          baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          envKey: "QWEN_API_KEY",
+          defaultModel: "qwen-plus",
+          models: [{ id: "qwen-plus" }],
+        },
+      ],
+    });
+
+    expect(put.status).toBe(200);
+    expect((put.json as { restartRequired: boolean; hotReloaded: boolean }).restartRequired).toBe(false);
+    expect((put.json as { hotReloaded: boolean }).hotReloaded).toBe(true);
+
+    const providers = await call("GET", "/admin/api/providers");
+    const qwen = (
+      providers.json as {
+        providers: Array<{ id: string; enabled: boolean; default_model: string }>;
+      }
+    ).providers.find((p) => p.id === "qwen");
+    expect(qwen?.enabled).toBe(true);
+    expect(qwen?.default_model).toBe("qwen-plus");
+    expect(cfg.providers.qwen?.apiKey).toBe("sk-qwen-from-env");
+  });
+
+  it("PUT /admin/api/service-provider-runtime/:id writes .env and activates the provider without restart", async () => {
+    const providerPut = await call("PUT", "/admin/api/generic-providers", {
+      providers: [
+        {
+          id: "qwen",
+          displayName: "Qwen",
+          baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          envKey: "QWEN_API_KEY",
+          defaultModel: "qwen-plus",
+          models: [{ id: "qwen-plus" }],
+        },
+      ],
+    });
+    expect(providerPut.status).toBe(200);
+    expect(cfg.providers.qwen).toBeNull();
+
+    const runtimePut = await call("PUT", "/admin/api/service-provider-runtime/qwen", {
+      apiKey: "sk-qwen-service",
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    });
+
+    expect(runtimePut.status).toBe(200);
+    expect((runtimePut.json as { restartRequired: boolean; hotReloaded: boolean }).restartRequired).toBe(false);
+    expect((runtimePut.json as { hotReloaded: boolean }).hotReloaded).toBe(true);
+    expect(cfg.providers.qwen?.apiKey).toBe("sk-qwen-service");
+    expect(cfg.providers.qwen?.baseUrl).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1");
+
+    const envText = readFileSync(join(dataDir, ".env"), "utf-8");
+    expect(envText).toContain("QWEN_API_KEY=sk-qwen-service");
+    expect(envText).toContain("QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1");
+  });
+
+  it("PUT /admin/api/generic-providers accepts inline service keys without persisting them", async () => {
+    const put = await call("PUT", "/admin/api/generic-providers", {
+      providers: [
+        {
+          id: "qwen",
+          displayName: "Qwen",
+          baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          envKey: "QWEN_API_KEY",
+          defaultModel: "qwen-plus",
+          models: [{ id: "qwen-plus" }],
+          apiKey: "sk-qwen-inline",
+        },
+      ],
+    });
+
+    expect(put.status).toBe(200);
+    expect((put.json as { restartRequired: boolean; hotReloaded: boolean }).restartRequired).toBe(false);
+    expect((put.json as { hotReloaded: boolean }).hotReloaded).toBe(true);
+    expect((put.json as { serviceRuntimeUpdated: number }).serviceRuntimeUpdated).toBe(1);
+    expect(cfg.providers.qwen?.apiKey).toBe("sk-qwen-inline");
+
+    const envText = readFileSync(join(dataDir, ".env"), "utf-8");
+    expect(envText).toContain("QWEN_API_KEY=sk-qwen-inline");
+    expect(envText).toContain("QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1");
+
+    const providersText = readFileSync(join(dataDir, "providers.json"), "utf-8");
+    expect(providersText).not.toContain("sk-qwen-inline");
+    expect(providersText).not.toContain("apiKey");
   });
 
   it("404 for unknown admin path", async () => {
