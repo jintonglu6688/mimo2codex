@@ -656,6 +656,8 @@ interface AssemblyState {
   pendingAssistantText: string | null;
 }
 
+const REASONING_ONLY_ASSISTANT_CONTENT = "[assistant turn interrupted before visible content]";
+
 function flushAssistant(messages: ChatMessage[], state: AssemblyState): void {
   const hasReasoning = state.pendingReasoning !== null;
   const hasTools = state.pendingToolCalls.length > 0;
@@ -665,14 +667,14 @@ function flushAssistant(messages: ChatMessage[], state: AssemblyState): void {
   // OpenAI Chat Completions: assistant.content 在 tool_calls 存在时是可选的，
   // 但显式 `null` 会被部分严格上游（DeepSeek V4 — issue #29）当成"两个字段都
   // 没有"，于是 400 "Invalid assistant message: content or tool_calls must be
-  // set"。所以 tool_calls 存在时直接不带 content 字段；reasoning-only 的
-  // 兜底回合（无 text 无 tools）补一个空字符串以满足"content 或 tool_calls
-  // 必须存在"。
+  // set"。所以 tool_calls 存在时直接不带 content 字段。reasoning-only 的
+  // 兜底回合（无 text 无 tools）补一个非空占位，避免后续历史重放时被严格上游
+  // 当成空 assistant 消息。
   const msg: ChatMessage = { role: "assistant" };
   if (hasText) {
     msg.content = state.pendingAssistantText;
   } else if (!hasTools) {
-    msg.content = "";
+    msg.content = REASONING_ONLY_ASSISTANT_CONTENT;
   }
   if (hasTools) msg.tool_calls = state.pendingToolCalls;
   if (hasReasoning) msg.reasoning_content = state.pendingReasoning;
