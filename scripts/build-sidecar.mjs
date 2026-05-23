@@ -37,8 +37,11 @@ function clean() {
 }
 
 function buildCli() {
-  console.log("[sidecar] building CLI (tsc)...");
-  execSync("npm run build", { cwd: root, stdio: "inherit" });
+  console.log("[sidecar] building CLI (tsc + web admin UI)...");
+  // build:all = tsc compile + web admin UI (React bundle in dist/web/).
+  // Without web:build, the packaged sidecar shows "Admin UI not built" on
+  // first /admin/ request — the mimo2codex CLI expects dist/web/ to exist.
+  execSync("npm run build:all", { cwd: root, stdio: "inherit" });
 }
 
 function copyCliArtifacts() {

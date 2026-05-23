@@ -7,12 +7,11 @@ import { needsFirstRunSetup } from "../firstRun.js";
 import { setAutostart } from "../autostart.js";
 import { IPC_CHANNEL, type RendererToMain, type MainToRenderer } from "../ipc.js";
 import { log } from "../logger.js";
+import { appIconPath } from "../icons.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // dist/src/windows → dist/src → dist
 const distDir = resolve(__dirname, "..", "..");
-// dist → package/desktop → package → repo root
-const repoRoot = resolve(distDir, "..", "..", "..");
 
 let win: BrowserWindow | null = null;
 
@@ -28,7 +27,6 @@ export function openSettings(cb: SettingsCallbacks): void {
     win.focus();
     return;
   }
-  const winIcon = join(repoRoot, "package/win/icon.ico");
   win = new BrowserWindow({
     width: 560,
     height: 540,
@@ -38,7 +36,7 @@ export function openSettings(cb: SettingsCallbacks): void {
     fullscreenable: false,
     title: "mimo2codex Settings",
     show: false,
-    icon: process.platform === "win32" ? winIcon : undefined,
+    icon: appIconPath(),
     webPreferences: {
       preload: join(distDir, "src", "preload.cjs"),
       contextIsolation: true,

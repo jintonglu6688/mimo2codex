@@ -2,13 +2,11 @@ import { BrowserWindow, ipcMain, shell, app } from "electron";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { IPC_CHANNEL, type RendererToMain, type MainToRenderer } from "../ipc.js";
+import { appIconPath } from "../icons.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // dist/src/windows → dist/src → dist
 const distDir = resolve(__dirname, "..", "..");
-// dist → package/desktop → package → repo root
-const repoRoot = resolve(distDir, "..", "..", "..");
-const winIcon = join(repoRoot, "package/win/icon.ico");
 
 let win: BrowserWindow | null = null;
 let subscribers: Array<(msg: MainToRenderer) => void> = [];
@@ -22,7 +20,7 @@ export function openLogsWindow(): void {
     width: 800,
     height: 500,
     title: "mimo2codex Logs",
-    icon: process.platform === "win32" ? winIcon : undefined,
+    icon: appIconPath(),
     webPreferences: {
       preload: join(distDir, "src", "preload.cjs"),
       contextIsolation: true,
