@@ -4,6 +4,10 @@
   "primaryCta": "Download for {{label}}  ({{size}})",
   "otherPlatforms": "Other platforms",
   "download": "Download",
+  "switchArch": {
+    "detected": "Detected as {{label}}",
+    "switch": "Switch to {{label}}"
+  },
   "copied": "Copied to clipboard",
   "copyFailed": "Couldn't access clipboard",
   "fetchFailed": {
@@ -36,9 +40,10 @@
   },
   "security": {
     "title": "First launch will show a security warning",
-    "mac": "macOS: right-click the app → Open → confirm (bypasses Gatekeeper for unsigned apps).",
+    "mac": "macOS: if you see \"App is damaged\" or \"can't be opened\", open Terminal and run: xattr -cr /Applications/mimo2codex.app  — this removes the download quarantine flag. Then double-click. (Right-click → Open works on some older macOS versions but not all; the xattr command always works.)",
     "win": "Windows: SmartScreen → \"More info\" → \"Run anyway\".",
-    "sha": "These are expected — desktop builds aren't code-signed yet. Verify the SHA256 above matches the file you downloaded for safety."
+    "sha": "These warnings are expected — desktop builds aren't code-signed yet. Verify the SHA256 above matches the file you downloaded.",
+    "uninstall": "Uninstall: macOS — drag mimo2codex.app from /Applications to Trash; optionally wipe configs with `rm -rf ~/Library/Application\\ Support/mimo2codex-desktop`. Windows — Settings → Apps → mimo2codex → Uninstall."
   },
   "cliHint": "Prefer the command line? npm install -g mimo2codex"
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Card, Skeleton, Alert, Collapse, Tag, Space, Typography, message } from "antd";
-import { DownloadOutlined, GithubOutlined, CopyOutlined, AppleOutlined, WindowsOutlined } from "@ant-design/icons";
+import { DownloadOutlined, GithubOutlined, CopyOutlined, AppleOutlined, WindowsOutlined, SwapOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import {
@@ -8,6 +8,8 @@ import {
   detectPlatform,
   type DesktopRelease,
   type DesktopAsset,
+  type DetectedPlatform,
+  type DetectedArch,
 } from "../api/githubReleases";
 
 const PLATFORM_LABEL: Record<string, string> = {
@@ -32,7 +34,12 @@ export default function Download() {
   const [release, setRelease] = useState<DesktopRelease | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [{ platform, arch }] = useState(() => detectPlatform());
+  // Detection is async (uses navigator.userAgentData.getHighEntropyValues
+  // when available). User can override via the "switch arch" link below
+  // the primary CTA — Safari can't tell M-series from Intel on Mac, so the
+  // default may be wrong and the user needs an escape hatch.
+  const [detected, setDetected] = useState<{ platform: DetectedPlatform; arch: DetectedArch } | null>(null);
+  const [override, setOverride] = useState<{ platform: DetectedPlatform; arch: DetectedArch } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,14 +47,28 @@ export default function Download() {
       .then((rel) => { if (!cancelled) setRelease(rel); })
       .catch((err) => { if (!cancelled) setError((err as Error).message); })
       .finally(() => { if (!cancelled) setLoading(false); });
+    detectPlatform().then((d) => { if (!cancelled) setDetected(d); });
     return () => { cancelled = true; };
   }, []);
 
+  const platform = override?.platform ?? detected?.platform ?? "unknown";
+  const arch = override?.arch ?? detected?.arch ?? "unknown";
   const primaryKey = `${platform}-${arch}`;
   const primaryAsset: DesktopAsset | undefined = release?.assets.find(
     (a) => `${a.platform}-${a.arch}` === primaryKey && (a.ext === "exe" || a.ext === "dmg")
   );
   const otherAssets = release?.assets.filter((a) => a !== primaryAsset) ?? [];
+
+  // Mac users see a "switch arch" link because Safari can't distinguish
+  // M-series from Intel via UA. On Windows arm64 vs x64 detection is more
+  // reliable, but we still offer the toggle to be safe.
+  const altArch: "x64" | "arm64" | null =
+    platform === "mac" ? (arch === "arm64" ? "x64" : "arm64") :
+    platform === "win" ? (arch === "arm64" ? "x64" : "arm64") :
+    null;
+  const altLabel = altArch
+    ? PLATFORM_LABEL[`${platform}-${altArch}`] ?? `${platform}-${altArch}`
+    : "";
 
   const copySha = async (sha?: string) => {
     if (!sha) return;
@@ -150,6 +171,21 @@ export default function Download() {
                   />
                 </Space>
               )}
+              {altArch && (platform === "mac" || platform === "win") && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {t("switchArch.detected", { label: PLATFORM_LABEL[primaryKey] ?? primaryKey })}
+                  {" · "}
+                  <Button
+                    size="small"
+                    type="link"
+                    icon={<SwapOutlined />}
+                    style={{ padding: 0, height: "auto", fontSize: 12 }}
+                    onClick={() => setOverride({ platform, arch: altArch })}
+                  >
+                    {t("switchArch.switch", { label: altLabel })}
+                  </Button>
+                </Typography.Text>
+              )}
             </Space>
           ) : (
             <Alert
@@ -224,6 +260,9 @@ export default function Download() {
             <span>{t("security.mac")}</span>
             <span>{t("security.win")}</span>
             <span>{t("security.sha")}</span>
+            <Typography.Text type="secondary" style={{ fontSize: 12, marginTop: 8 }}>
+              {t("security.uninstall")}
+            </Typography.Text>
           </Space>
         }
         style={{ marginBottom: 24 }}

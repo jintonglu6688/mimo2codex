@@ -4,6 +4,10 @@
   "primaryCta": "下载 {{label}} 版（{{size}}）",
   "otherPlatforms": "其他平台",
   "download": "下载",
+  "switchArch": {
+    "detected": "识别为 {{label}}",
+    "switch": "切换到 {{label}}"
+  },
   "copied": "已复制到剪贴板",
   "copyFailed": "无法访问剪贴板",
   "fetchFailed": {
@@ -36,9 +40,10 @@
   },
   "security": {
     "title": "首次打开会有系统安全警告",
-    "mac": "macOS：右键应用 → 打开 → 确认（绕过 Gatekeeper，因为我们还没买代码签名证书）。",
+    "mac": "macOS：如果提示「应用已损坏」或「无法打开」，打开终端跑：xattr -cr /Applications/mimo2codex.app 一次，清除浏览器下载留下的 quarantine 标记，然后双击就能开。（「右键 → 打开」在新版 macOS 不一定还能用，xattr 命令永远管用。）",
     "win": "Windows：SmartScreen 警告 → 「更多信息」→「仍要运行」。",
-    "sha": "正常现象——桌面包暂时无签名。下载后请校验 SHA256 与本页一致以确认完整性。"
+    "sha": "这些警告是正常的——桌面包暂时无签名。下载后请校验 SHA256 与本页一致以确认完整性。",
+    "uninstall": "卸载方法：macOS——把 /Applications 里的 mimo2codex.app 拖到废纸篓；要彻底删配置：`rm -rf ~/Library/Application\\ Support/mimo2codex-desktop`。Windows——设置 → 应用 → mimo2codex → 卸载。"
   },
   "cliHint": "想用命令行版？npm install -g mimo2codex"
 }

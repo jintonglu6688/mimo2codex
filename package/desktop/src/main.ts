@@ -135,12 +135,12 @@ async function main(): Promise<void> {
     broadcastLog(s, "stderr");
   });
 
-  // First-run gate: don't start sidecar until user has provided a key.
+  // First-run gate: don't start sidecar yet. We defer the actual start until
+  // AFTER the tray + status listener are wired (below) so the initial
+  // "starting" → "running" status transition doesn't fire into the void.
+  // (Previously sidecar started here, before the listener was attached, and
+  // the tray stayed stuck on "starting" for non-first-run launches.)
   const isFirstRun = needsFirstRunSetup(userDataDir);
-  if (!isFirstRun) {
-    await sidecar.start();
-    saveRuntime(userDataDir, { ...runtime, port });
-  }
 
   // Tray + actions
   const { createTray, updateStatus } = await import("./tray.js");
@@ -220,7 +220,10 @@ async function main(): Promise<void> {
   createTray(trayActions);
   log.info("tray created");
 
-  // Status updates push to tray (Task 7.3).
+  // Status updates push to tray (Task 7.3). MUST be registered before the
+  // deferred sidecar.start() below — otherwise the "starting" / "running"
+  // transition emitted by spawnOnce fires with no listener attached and
+  // the tray header is stuck on the initial "starting" label.
   sidecar.on("status", (st) => {
     log.info("sidecar status", st);
     updateStatus(trayActions, st);
@@ -228,6 +231,12 @@ async function main(): Promise<void> {
       notifyCrash(trayActions.openLogs);
     }
   });
+
+  // Now safe to launch sidecar (skipped on first run — user fills key first).
+  if (!isFirstRun) {
+    await sidecar.start();
+    saveRuntime(userDataDir, { ...runtime, port });
+  }
 
   // Decide what to surface to the user on launch:
   //

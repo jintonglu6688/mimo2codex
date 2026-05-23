@@ -126,26 +126,60 @@ export async function fetchLatestDesktopRelease(): Promise<DesktopRelease | null
   return release;
 }
 
-/** Best-effort platform/arch detection from User-Agent + Client Hints. */
-export function detectPlatform(): { platform: "win" | "mac" | "unknown"; arch: "x64" | "arm64" | "unknown" } {
+export type DetectedPlatform = "win" | "mac" | "unknown";
+export type DetectedArch = "x64" | "arm64" | "unknown";
+
+/**
+ * Best-effort platform/arch detection from User-Agent + Client Hints.
+ *
+ * Async because the only reliable way to learn the architecture on modern
+ * browsers is `userAgentData.getHighEntropyValues(['architecture'])` —
+ * the synchronous `userAgentData.architecture` is the *low-entropy hint*
+ * and is usually empty.
+ *
+ * Mac-specific quirks:
+ * - Safari deliberately freezes the UA string to "Intel Mac OS X" even on
+ *   Apple Silicon (Apple's anti-fingerprinting policy). UA parsing alone
+ *   cannot distinguish M-series from Intel on Safari.
+ * - Chrome on Mac exposes the real arch via getHighEntropyValues.
+ * - When neither source resolves, we default to arm64 on Mac: Apple stopped
+ *   selling Intel Macs in 2022, so the population skew is heavily Apple
+ *   Silicon by now. Users can override via the UI switcher.
+ */
+export async function detectPlatform(): Promise<{ platform: DetectedPlatform; arch: DetectedArch }> {
   const ua = navigator.userAgent;
-  let platform: "win" | "mac" | "unknown" = "unknown";
+  let platform: DetectedPlatform = "unknown";
   if (/Windows/i.test(ua)) platform = "win";
   else if (/Mac OS X|Macintosh/i.test(ua)) platform = "mac";
 
-  // UA-CH: navigator.userAgentData?.architecture is "arm" / "x86" / ...
-  // Only Chromium-based browsers expose it.
-  let arch: "x64" | "arm64" | "unknown" = "unknown";
-  const uad = (navigator as unknown as { userAgentData?: { architecture?: string; getHighEntropyValues?: (k: string[]) => Promise<{ architecture?: string }> } }).userAgentData;
-  if (uad?.architecture) {
-    arch = uad.architecture === "arm" ? "arm64" : "x64";
-  } else if (platform === "mac" && /arm64|aarch64/i.test(ua)) {
-    arch = "arm64";
-  } else if (platform === "win" && /ARM64|aarch64/i.test(ua)) {
-    arch = "arm64";
-  } else if (platform !== "unknown") {
-    // Best guess: x64 (still by far the most common)
-    arch = "x64";
+  let arch: DetectedArch = "unknown";
+
+  // UA Client Hints — authoritative when available (Chromium ≥ 90 on Mac/Win).
+  const uad = (navigator as unknown as {
+    userAgentData?: {
+      getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string; bitness?: string }>;
+    };
+  }).userAgentData;
+  if (uad?.getHighEntropyValues) {
+    try {
+      const hi = await uad.getHighEntropyValues(["architecture", "bitness"]);
+      if (hi.architecture === "arm") arch = "arm64";
+      else if (hi.architecture === "x86") arch = "x64";
+    } catch {
+      // Permission denied / unsupported — fall through to heuristics below.
+    }
+  }
+
+  // Heuristic fallbacks when UA-CH doesn't resolve arch.
+  if (arch === "unknown") {
+    if (platform === "mac") {
+      // Safari & older browsers can't expose the chip. Default to arm64 since
+      // Apple Silicon is now the dominant Mac config; user can switch in UI.
+      arch = "arm64";
+    } else if (platform === "win") {
+      if (/ARM64|aarch64/i.test(ua)) arch = "arm64";
+      else arch = "x64";
+    }
   }
 
   return { platform, arch };
