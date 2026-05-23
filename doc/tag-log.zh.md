@@ -20,6 +20,7 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 ## (v0.4.8 — 2026-05-23)
 
 - **[new]** **桌面预览（beta）—— Windows 系统托盘 / macOS 顶栏桌面端**：可选的 Electron 壳子，后台跑 mimo2codex，不用一直挂着终端窗口。首次启动会有个小设置窗让你选 provider 并粘贴 API Key；之后从系统托盘 / 顶栏图标一键打开内嵌的 admin UI（窗内或默认浏览器都行）。sidecar 生命周期（启动 / 停止 / 改设置时重启）完全托管，菜单 **Quit** 干净退出。提供可选的"开机自启"开关。命令行版（`npm install -g mimo2codex`）完全不变，两者可在同一台机器共存 —— 桌面版作为独立的 `v*-desktop` 制品发布。这是 **beta** —— 安装、启动、sidecar、自更新链路还需要真实环境的里程验证，遇到任何卡点请反馈。下载和安装指引：<https://mimodoc.chengj.online/download>。
+- **[fix]** **CodeX Desktop string-input 被误判为 probe（[PR #31](https://github.com/7as0nch/mimo2codex/pull/31)，感谢 @85339098-afk）**：OpenAI Responses API 规范允许 `input` 是 string 或 items 数组两种形式；`handleResponses` 里的 probe 形状检测之前只认数组形式，导致 `{model, input: "write hello world"}` 这种 CodeX Desktop 的自然请求被短路成 synthetic 200 + 空 `output: []` —— 看起来像"模型啥也没说"，**完全没有错误信号**。现在 string `input` 非空也会正确通过。把判定逻辑抽成导出的 `isResponsesProbe()` 函数，配套单元测试套件（`test/server.probe.test.ts`），后续不会因为重构再次被回归。
 
 ---
 

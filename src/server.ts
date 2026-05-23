@@ -382,7 +382,7 @@ async function handleResponses(
   log.debug("incoming POST /v1/responses", {
     model: payload.model,
     stream: !!payload.stream,
-    hasInput: Array.isArray(payload.input) ? payload.input.length : "n/a",
+    hasInput: Array.isArray(payload.input) ? payload.input.length : (typeof payload.input === "string" ? payload.input.length : "n/a"),
     hasInstructions: typeof payload.instructions === "string" ? payload.instructions.length : 0,
     keys: Object.keys(payload),
   });
@@ -393,9 +393,7 @@ async function handleResponses(
   // translation would forward `messages: []` to the upstream, which 400s.
   // Detect the probe shape (no input, no instructions) and answer with a
   // synthetic 200 without burning an upstream call.
-  const hasInput = Array.isArray(payload.input) && payload.input.length > 0;
-  const hasInstructions = typeof payload.instructions === "string" && payload.instructions.length > 0;
-  if (!hasInput && !hasInstructions) {
+  if (isResponsesProbe(payload)) {
     log.debug("matched probe shape — returning synthetic 200 without upstream call");
     return respondToResponsesProbe(payload, res, !!payload.stream);
   }
@@ -882,6 +880,29 @@ async function handleResponsesPassthrough(
       tool_call_count: null,
     });
   }
+}
+
+// Probe-shape detection for POST /v1/responses. cc-switch's "test connection"
+// (and similar health-checks) send `{model, stream}` with no `input` and no
+// `instructions` — forwarding would give the upstream `messages: []` and a
+// 400. So we short-circuit those with a synthetic 200.
+//
+// issue #31: OpenAI's Responses API accepts `input` as either a string or an
+// array of message items. The previous check only matched the array form,
+// causing CodeX Desktop's `{input: "write hello world"}` requests to be
+// misidentified as probes and returned with an empty `output: []` (no
+// upstream call) — looks like "model said nothing" with zero error signal.
+// The string branch was added by 85339098-afk (PR #31).
+//
+// Exported so a focused unit test can lock the rule without spinning up the
+// full HTTP server + mock upstream.
+export function isResponsesProbe(payload: ResponsesRequest): boolean {
+  const hasInput =
+    (typeof payload.input === "string" && payload.input.length > 0) ||
+    (Array.isArray(payload.input) && payload.input.length > 0);
+  const hasInstructions =
+    typeof payload.instructions === "string" && payload.instructions.length > 0;
+  return !hasInput && !hasInstructions;
 }
 
 function respondToResponsesProbe(

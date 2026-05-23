@@ -100,6 +100,17 @@ export const RELEASE_NOTES: ReleaseNote[] = [
           zh: "better-sqlite3 native binding 加载失败时（典型：Windows pnpm 全局安装且 Node 22 没拿到对应 ABI 的 prebuilt），mimo2codex 现在打印清晰告警并以 admin 关闭模式继续启动，不再退出。代理核心翻译本来就不依赖 DB。",
         },
       },
+      {
+        kind: "fixed",
+        title: {
+          en: "CodeX Desktop string-input misidentified as probe (PR #31, thanks @85339098-afk)",
+          zh: "CodeX Desktop 的 string input 被误判为 probe（PR #31，感谢 @85339098-afk）",
+        },
+        description: {
+          en: "OpenAI's Responses API allows `input` to be a string or an array; the probe detector only matched the array form, so `{model, input: \"hello\"}` (CodeX Desktop's natural shape) was short-circuited to an empty `output: []` with no upstream call — looked like \"model said nothing\" with no error signal. Non-empty string `input` is now correctly recognized as a real request.",
+          zh: "OpenAI Responses API 允许 `input` 是 string 或数组；之前 probe 检测只认数组形式，导致 `{model, input: \"hello\"}`（CodeX Desktop 的自然形状）被短路成 `output: []` 空响应、完全不调上游 —— 看起来像\"模型啥也没说\"且没有错误信号。现在 string `input` 非空也会正确走完整翻译流程。",
+        },
+      },
     ],
   },
 ];
