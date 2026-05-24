@@ -35,6 +35,9 @@ export interface GenericProviderSpec {
   // (no rewrite to defaultModel). Provide entries here only when you want
   // print-config to fill in context_window / max_output_tokens.
   models?: ProviderModel[];
+  // Optional admin/UI metadata. Runtime routing still uses models/defaultModel;
+  // external managers use this to preserve which declared models are enabled.
+  selectedModels?: string[];
   features?: {
     webSearch?: boolean;
     forceParallelToolCalls?: boolean;

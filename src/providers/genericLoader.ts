@@ -96,6 +96,16 @@ function parseModels(raw: unknown, providerId: string): ProviderModel[] {
   });
 }
 
+function parseSelectedModels(raw: unknown, providerId: string): string[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) {
+    throw new GenericLoaderError(`provider "${providerId}" .selectedModels must be an array`);
+  }
+  return raw
+    .filter((modelId): modelId is string => typeof modelId === "string" && modelId.trim().length > 0)
+    .map((modelId) => modelId.trim());
+}
+
 function parseSpec(raw: unknown, idx: number): GenericProviderSpec {
   if (typeof raw !== "object" || raw === null) {
     throw new GenericLoaderError(`providers[${idx}] must be an object`);
@@ -179,6 +189,7 @@ function parseSpec(raw: unknown, idx: number): GenericProviderSpec {
         }
       : undefined,
     docsUrl: typeof obj.docsUrl === "string" ? obj.docsUrl : undefined,
+    selectedModels: parseSelectedModels(obj.selectedModels, id),
     // minimax-compat: 顶层 forceDefaultModel 字段
     forceDefaultModel:
       typeof obj.forceDefaultModel === "boolean" ? obj.forceDefaultModel : undefined,
