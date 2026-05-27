@@ -66,20 +66,22 @@
     }
   },
   "quickstart": {
-    "title": "三步上路",
-    "subtitle": "从 npm install 到代理跑起来，不到一分钟。",
+    "title": "三种部署方式任选",
+    "subtitle": "命令行老用户、内网 / 团队部署、纯小白桌面端 —— 按需取用。",
     "steps": {
-      "install": {
-        "title": "安装",
-        "body": "npm 全局安装，单一可执行文件，零运行时配置。"
+      "cli": {
+        "title": "命令行（CLI）",
+        "body": "全局 npm 安装，单一可执行文件，零运行时配置。"
       },
-      "init": {
-        "title": "初始化",
-        "body": "生成 ~/.mimo2codex/.env 和 providers.json，附带合理默认值。"
+      "docker": {
+        "title": "Docker 部署",
+        "body": "内网 / 团队场景，自带用户登录、BYOK、OAuth、配置下发。",
+        "cta": "Docker 部署指南"
       },
-      "run": {
-        "title": "启动",
-        "body": "代理监听 127.0.0.1:8788 —— 打开 /admin/ 管理模型与密钥。"
+      "desktop": {
+        "title": "Windows / macOS 桌面端",
+        "body": "下载即用，后台运行，开机自启，无需开终端 —— 推荐纯小白用户。",
+        "cta": "前往下载"
       }
     }
   },

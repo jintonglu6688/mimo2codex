@@ -29,8 +29,6 @@
 > 2. **Docker 云服务部署** —— 内网 / 团队场景，自带用户登录、BYOK、OAuth、Codex 客户端配置下发，不泄漏上游 key。详见 [doc/auth-deployment.zh.md](./doc/auth-deployment.zh.md)。
 > 3. **Windows / macOS 桌面端**（推荐小白用户）—— 直接下载安装包，后台运行、开机自启、不用开终端、不用碰命令行，从系统托盘 / 顶栏一键开 admin 面板。下载入口：<https://mimodoc.chengj.online/download>。
 >
-> 🖥️ **新增：桌面端**（Windows 系统托盘 / macOS 顶栏菜单）—— 后台跑 mimo2codex，不再依赖终端窗口常开。命令行版不变，两者可同机共存。下载地址：**[mimodoc.chengj.online/download](https://mimodoc.chengj.online/download)**。
->
 > 📜 完整版本历史 → **[doc/tag-log.zh.md](./doc/tag-log.zh.md)**（倒序排列；修复 / 新增 / 优化 / 文档 各类分门别类）。
 
 ![Admin 控制台 · 概览](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/images/admin-dashboard.png)

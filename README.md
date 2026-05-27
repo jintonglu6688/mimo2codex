@@ -29,8 +29,6 @@ Local proxy that lets the **latest OpenAI Codex CLI / desktop** talk to virtuall
 > 2. **Docker deployment** — for intranet / team setups; ships with user login, BYOK, OAuth, downloadable Codex client config bundles; the upstream key never leaks. See [doc/auth-deployment.md](./doc/auth-deployment.md).
 > 3. **Windows / macOS desktop app** (recommended for non-technical users) — download an installer, runs in the background, starts on boot, no terminal required; one click from the tray / menu-bar opens the admin UI. Downloads: <https://mimodoc.chengj.online/download>.
 >
-> 🖥️ **New: Desktop app** (Windows tray / macOS menu bar) — runs mimo2codex in the background with no terminal window. CLI is unchanged; the two can be installed side-by-side. Get it from **[mimodoc.chengj.online/download](https://mimodoc.chengj.online/download)**.
->
 > 📜 Full version history → **[doc/tag-log.md](./doc/tag-log.md)** (newest first; fix / feat / opt categorized).
 
 ![Admin console · dashboard](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/images/admin-dashboard.png)
