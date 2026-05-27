@@ -641,7 +641,7 @@ export interface UpdateStatusResponse {
   channel: "latest" | "beta";
   checkedAt: number | null;
   source: "cache" | "fresh" | "skipped";
-  method: "npm-global" | "git" | "unknown";
+  method: "npm-global" | "git" | "desktop" | "unknown";
   command: string;
   rootDir: string;
   preferences: {

@@ -24,4 +24,9 @@ venv/
 
 config.yaml
 
-package/
+# desktop shell build artifacts
+package/desktop/dist/
+package/desktop/node_modules/
+package/desktop/resources/icons/
+package/desktop/resources/sidecar/
+package/desktop/release/

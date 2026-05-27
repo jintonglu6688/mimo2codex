@@ -9,7 +9,11 @@ import { existsSync } from "node:fs";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..");
 
-export type UpdateMethod = "npm-global" | "git" | "unknown";
+export type UpdateMethod = "npm-global" | "git" | "desktop" | "unknown";
+
+/** Download page for desktop builds. Shown to users when running under the
+ *  Electron desktop shell — they can't `npm install -g` themselves out of it. */
+const DESKTOP_DOWNLOAD_URL = "https://mimodoc.chengj.online/download";
 
 export interface UpdateMethodInfo {
   method: UpdateMethod;
@@ -31,6 +35,19 @@ export interface UpdateMethodInfo {
 // - anything else → unknown (still suggest npm install)
 export function detectUpdateMethod(): UpdateMethodInfo {
   const rootDir = PACKAGE_ROOT;
+
+  // Heuristic 0: running under the Electron desktop shell (env var injected
+  // by package/desktop/src/paths.ts). The user can't `npm install -g` to
+  // upgrade — they need a new desktop installer. The auto-update path is
+  // explicitly disabled; admin UI shows a "go to download page" CTA.
+  if (process.env.MIMO2CODEX_DESKTOP_PARENT === "1") {
+    return {
+      method: "desktop",
+      rootDir,
+      command: `Open ${DESKTOP_DOWNLOAD_URL} to download a new desktop installer`,
+      steps: [],
+    };
+  }
 
   // Heuristic 1: explicit git checkout
   if (existsSync(resolve(rootDir, ".git"))) {

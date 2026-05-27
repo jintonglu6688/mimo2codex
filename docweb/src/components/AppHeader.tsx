@@ -19,6 +19,7 @@ export default function AppHeader() {
           {t("nav.home")}
         </NavLink>
         <NavLink to="/docs">{t("nav.docs")}</NavLink>
+        <NavLink to="/download">{t("nav.download")}</NavLink>
         <NavLink to="/ideas">{t("nav.ideas")}</NavLink>
       </nav>
       <div className="spacer" />

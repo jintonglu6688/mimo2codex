@@ -2,6 +2,7 @@
   "banner": {
     "title": "New version v{{latest}} available (current v{{current}})",
     "actionUpdate": "Update & restart",
+    "actionOpenDownload": "Open download page",
     "actionShowCommand": "Show command",
     "actionIgnore": "Ignore this version",
     "actionDismiss": "Dismiss"
@@ -20,6 +21,7 @@
   "method": {
     "npm-global": "npm global install (npm i -g mimo2codex@latest)",
     "git": "git checkout (git pull + npm run build:all)",
+    "desktop": "Desktop installer (download a new build to update)",
     "unknown": "Unknown (manual update required)"
   },
   "command": {

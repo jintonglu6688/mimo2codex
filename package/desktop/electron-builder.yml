@@ -1,0 +1,79 @@
+appId: com.chengj.mimo2codex
+productName: mimo2codex
+copyright: "© 2026 chengj"
+
+# Auto-update is intentionally disabled — the desktop shell tells users to
+# grab a new installer from /download instead of doing in-app upgrades (the
+# CLI sidecar runs under ELECTRON_RUN_AS_NODE and has no `npm install -g`
+# path available; see src/setup/updateMethod.ts desktop branch).
+# Setting `publish: null` also prevents electron-builder from trying to
+# compute update channels for each target — without this, builds crash with
+# "Cannot read properties of null (reading 'channel')" in updateInfoBuilder.
+publish: null
+
+directories:
+  output: release
+  buildResources: ../
+
+# What gets packed INSIDE the asar
+files:
+  - "dist/**/*"
+  - "node_modules/**/*"
+  - "package.json"
+
+# What gets dropped under resources/ next to the asar
+# - sidecar: the bundled Node + dist/cli.js (produced by `npm run sidecar:build`)
+# - branding-*: tray template + colored ico for runtime icon load
+extraResources:
+  - from: "resources/sidecar"
+    to: "sidecar"
+  - from: "../win"
+    to: "branding-win"
+    filter: ["icon.ico", "tray.ico"]
+  - from: "../mac"
+    to: "branding-mac"
+    filter: ["tray-Template*.png"]
+
+mac:
+  category: public.app-category.developer-tools
+  icon: "../mac/icon.icns"
+  # zip-only for Mac. We previously shipped dmg too, but multiple CI hdiutil
+  # versions (macos-14 and macos-15) and dmg formats (UDZO + ULFO) consistently
+  # produced technically-valid-but-unmountable images on consumer Macs
+  # ("此电脑不能读取你连接的磁盘" / "error 3840"). zip is boring and works
+  # everywhere — Finder unzips on double-click, user drags .app to /Applications.
+  # If we ever want dmg back, build it locally and `gh release upload --clobber`
+  # alongside; the download page already supports either ext.
+  target:
+    - target: zip
+      arch: [x64, arm64]
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  entitlements: "../mac/entitlements.mac.plist"
+  entitlementsInherit: "../mac/entitlements.mac.plist"
+  artifactName: "mimo2codex-desktop-${version}-mac-${arch}.${ext}"
+  # Menu-bar-only agent app: hide from Dock and Cmd+Tab (Task 9.1.1 — A2).
+  # Info.plist `LSUIElement` is what runtime `app.dock?.hide()` *should*
+  # have been all along — declarative, no startup flicker.
+  extendInfo:
+    LSUIElement: true
+    NSHumanReadableCopyright: "© 2026 chengj"
+
+win:
+  icon: "../win/icon.ico"
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: mimo2codex
+  installerIcon: "../win/icon.ico"
+  uninstallerIcon: "../win/icon.ico"
+  installerHeaderIcon: "../win/icon.ico"
+  # Default OFF — most users want to preserve their config across reinstalls.
+  deleteAppDataOnUninstall: false
+  artifactName: "mimo2codex-desktop-${version}-win-${arch}.${ext}"

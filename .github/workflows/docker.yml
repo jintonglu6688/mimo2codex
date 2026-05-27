@@ -1,10 +1,14 @@
 name: Build and Publish Docker Image
 
 # 触发条件：当推送到 main/master 分支，或者发布新标签 (如 v1.0.0) 时触发
+# `v*-desktop*` 排除——桌面端 release 走 build-desktop.yml，不需要 Docker 镜像。
 on:
   push:
     branches: [ "main", "master" ]
-    tags: [ 'v*.*.*' ]
+    tags:
+      - 'v*.*.*'
+      - '!v*-desktop'
+      - '!v*-desktop.*'
   pull_request:
     branches: [ "main", "master" ]
 

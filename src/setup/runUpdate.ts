@@ -101,6 +101,20 @@ export async function runUpdate(opts: RunUpdateOptions = {}): Promise<RunUpdateR
     };
   }
 
+  if (info.method === "desktop") {
+    // Running under the Electron desktop shell — auto-update is intentionally
+    // disabled. Tell the user to grab a new installer from the download page;
+    // the admin UI surfaces a "Open download page" link in place of "Update now".
+    onLine(info.command, "stdout");
+    return {
+      method: info.method,
+      command: info.command,
+      exitCode: 0,
+      stepsRun: 0,
+      skipped: true,
+    };
+  }
+
   onLine(`Updating mimo2codex via ${info.method}…`, "stdout");
   let stepsRun = 0;
   for (const step of info.steps) {

@@ -47,6 +47,8 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 ## v0.4.5 — 2026-05-22
 
+- **[new]** **桌面端（Windows 系统托盘 / macOS 顶栏菜单）**：可选的桌面壳子，后台跑 mimo2codex，不再依赖终端窗口常开。首次启动有设置窗让你填 provider + API Key；托盘菜单一键打开 admin UI、查看 sidecar 日志、重启；可选「开机自启」复选框。命令行版安装（`npm install -g mimo2codex`）完全不变，桌面端走单独的 `v*-desktop` GitHub release 分发。下载与安装指南：<https://mimodoc.chengj.online/download>。
+- **[opt]** **桌面端 Mac 包改成 `.zip`（原来是 `.dmg`）**：GitHub Actions runner 上的 hdiutil（不论 macos-14 / macos-15）+ dmg 格式（UDZO / ULFO）多次试下来，生成的 `.dmg` SHA 校验过得了，但到真机上 Finder 挂不上（「此电脑不能读取你连接的磁盘」 / 「错误代码 3840」）。`.zip` 简单粗暴、哪里都能用——Finder 双击解压出 `mimo2codex.app`，拖到 `/Applications` 即可。下载页会自动识别格式，以后真要做签名 `.dmg` 再把那个 target 加回来。SHA256 校验、首次启动 `xattr -cr` 清 quarantine 这些都不变。
 - **[new]** **代理的支持**：mimo2codex 出站请求支持 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` 环境变量，行为与 `curl` / `git` 一致。Docker 部署在 `docker-compose.yml` 的 `environment:` 段声明，本地在 shell / `.env` 里 `export` 都可以。启动 banner 多一行 `proxy:` 回显当前生效的代理，env 是否被识别一眼能看到。`MIMO2CODEX_NO_PROXY_FROM_ENV=1` 可让 mimo2codex 无视代理 env（适合 shell 里为 `curl` / `git` 常驻了代理、但不想让 mimo2codex 跟着走的场景）。
 - **[opt]** 上游连接失败的日志补上 underlying cause 的 `code` 和 `message`（如 `ECONNREFUSED` / `ENOTFOUND` / `ETIMEDOUT`），同样的细节注入到 502 的 `UpstreamError.message`，代理端口写错、DNS 解析失败、超时这些情况一眼能分辨。
 - **[doc]** proxy-faq §1 改写：明确"系统代理 ≠ 进程代理"——Clash / Surge 等 UI 里点的"系统代理"开关不会自动导出 env；新增 🩺 自检 callout 让用户从启动 banner 一眼看出当前代理状态。§5 新增 `ECONNREFUSED <代理-host>:<代理-port>` 一行（含 Docker 里 `127.0.0.1` 的坑）。

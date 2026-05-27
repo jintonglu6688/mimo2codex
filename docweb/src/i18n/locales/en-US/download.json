@@ -1,0 +1,58 @@
+{
+  "title": "mimo2codex Desktop",
+  "tagline": "Run mimo2codex in the background. Tray icon. One-click admin UI. No terminal needed.",
+  "primaryCta": "Download for {{label}}  ({{size}})",
+  "otherPlatforms": "Other platforms",
+  "download": "Download",
+  "switchArch": {
+    "detected": "Detected as {{label}}",
+    "switch": "Switch to {{label}}"
+  },
+  "copied": "Copied to clipboard",
+  "copyFailed": "Couldn't access clipboard",
+  "fetchFailed": {
+    "title": "Couldn't fetch release info",
+    "detail": "GitHub API error: {{error}}",
+    "fallback": "Open GitHub Releases manually"
+  },
+  "notReleasedYet": {
+    "title": "Desktop builds not yet released",
+    "detail": "We haven't shipped a desktop release yet. For now, install the CLI:"
+  },
+  "noMatchPlatform": {
+    "title": "Your platform isn't auto-detected",
+    "detail": "Pick a build from \"Other platforms\" below."
+  },
+  "why": {
+    "title": "Why the desktop build?",
+    "bg": {
+      "title": "Runs in the background",
+      "detail": "No terminal window to keep open. Closes to tray, not the dock."
+    },
+    "tray": {
+      "title": "One-click admin",
+      "detail": "Open settings, view logs, restart sidecar — all from the tray menu."
+    },
+    "autostart": {
+      "title": "Launch at boot (optional)",
+      "detail": "Toggle \"Start on system boot\" from the tray; ready before you open Codex."
+    }
+  },
+  "macSteps": {
+    "title": "macOS install & first launch (4 steps)",
+    "intro": "Desktop builds aren't code-signed yet, so macOS Gatekeeper blocks the .app extracted from a downloaded .zip with \"App is damaged, can't be opened\". Follow these 4 steps:",
+    "s1": "Double-click the downloaded .zip in your Downloads folder — Finder unzips it to mimo2codex.app.",
+    "s2": "Drag mimo2codex.app into the Applications folder (/Applications).",
+    "s3": "Open Terminal, paste the line below and press Enter:",
+    "s3Hint": "(This clears the browser-download quarantine flag. Without it, the next step would fail with \"is damaged\". The command produces no output — that's normal.)",
+    "s4": "Double-click mimo2codex.app in Applications. Look for the m2 icon in your menu bar to open the settings panel."
+  },
+  "security": {
+    "title": "First launch will show a security warning",
+    "mac": "macOS fallback: if you skipped the 4 steps above and double-clicking the app shows \"is damaged, can't be opened\", run xattr -cr /Applications/mimo2codex.app  once. (Right-click → Open works on some older macOS versions but not all; the xattr command always works.)",
+    "win": "Windows: SmartScreen → \"More info\" → \"Run anyway\".",
+    "sha": "These warnings are expected — desktop builds aren't code-signed yet. Verify the SHA256 above matches the file you downloaded.",
+    "uninstall": "Uninstall: macOS — drag mimo2codex.app from /Applications to Trash; optionally wipe configs with `rm -rf ~/Library/Application\\ Support/mimo2codex-desktop`. Windows — Settings → Apps → mimo2codex → Uninstall."
+  },
+  "cliHint": "Prefer the command line? npm install -g mimo2codex"
+}
