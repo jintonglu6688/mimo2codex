@@ -25,10 +25,11 @@
 Local proxy that lets the **latest OpenAI Codex CLI / desktop** talk to virtually any modern LLM. Built-in support for **Xiaomi MiMo V2.5** and **DeepSeek V4 Pro**, plus a **generic provider mechanism** that connects any **OpenAI Chat Completions-compatible** (Qwen / GLM / Kimi / vLLM / Ollama / LM Studio …) or **native Responses API** (OpenAI itself) upstream — no code changes, no re-publish needed. Translates Codex's Responses API ↔ upstream Chat Completions on the fly, per-request routing by `model` field, optional admin web console, runs on `127.0.0.1`.
 
 > 🚀 **From v0.5.0 · three ways to run mimo2codex**:
-> 1. **One-line CLI install** — `npm install -g mimo2codex`, the classic path.
-> 2. **Docker deployment** — for intranet / team setups; ships with user login, BYOK, OAuth, downloadable Codex client config bundles; the upstream key never leaks. See [doc/auth-deployment.md](./doc/auth-deployment.md).
-> 3. **Windows / macOS desktop app** (recommended for non-technical users) — download an installer, runs in the background, starts on boot, no terminal required; one click from the tray / menu-bar opens the admin UI. Downloads: <https://mimodoc.chengj.online/download>.
->
+
+1. **One-line CLI install** — `npm install -g mimo2codex`, the classic path.
+2. **Docker deployment** — for intranet / team setups; ships with user login, BYOK, OAuth, downloadable Codex client config bundles; the upstream key never leaks. See [doc/auth-deployment.md](./doc/auth-deployment.md).
+3. **Windows / macOS desktop app** (recommended for non-technical users) — download an installer, runs in the background, starts on boot, no terminal required; one click from the tray / menu-bar opens the admin UI. Downloads: <https://mimodoc.chengj.online/download>.
+
 > 📜 Full version history → **[doc/tag-log.md](./doc/tag-log.md)** (newest first; fix / feat / opt categorized).
 
 ![Admin console · dashboard](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/images/admin-dashboard.png)

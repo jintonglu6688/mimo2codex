@@ -25,10 +25,11 @@
 让**最新版** OpenAI Codex CLI / Codex 桌面端接入主流大模型的本地代理。内置 **小米 MiMo V2.5** 与 **DeepSeek V4 Pro**，并提供**通用 provider 机制**——不改任何代码、不重新发包，就能把任何 **OpenAI Chat Completions 兼容**（Qwen / GLM / Kimi / 本地 vLLM / Ollama / LM Studio …）或**原生 Responses API**（OpenAI 自家）的上游接到新版 Codex。把 Codex 的 Responses API 实时翻译成上游的 Chat Completions API，按客户端发的 `model` 字段在 provider 之间自动路由。可配 admin Web 控制台。
 
 > 🚀 **从 v0.5.0 起 · 三种部署方式任选**：
-> 1. **一键命令行运行** —— `npm install -g mimo2codex` 装好即跑，老用户路径。
-> 2. **Docker 云服务部署** —— 内网 / 团队场景，自带用户登录、BYOK、OAuth、Codex 客户端配置下发，不泄漏上游 key。详见 [doc/auth-deployment.zh.md](./doc/auth-deployment.zh.md)。
-> 3. **Windows / macOS 桌面端**（推荐小白用户）—— 直接下载安装包，后台运行、开机自启、不用开终端、不用碰命令行，从系统托盘 / 顶栏一键开 admin 面板。下载入口：<https://mimodoc.chengj.online/download>。
->
+
+1. **一键命令行运行** —— `npm install -g mimo2codex` 装好即跑，老用户路径。
+2. **Docker 云服务部署** —— 内网 / 团队场景，自带用户登录、BYOK、OAuth、Codex 客户端配置下发，不泄漏上游 key。详见 [doc/auth-deployment.zh.md](./doc/auth-deployment.zh.md)。
+3. **Windows / macOS 桌面端**（推荐小白用户）—— 直接下载安装包，后台运行、开机自启、不用开终端、不用碰命令行，从系统托盘 / 顶栏一键开 admin 面板。下载入口：<https://mimodoc.chengj.online/download>。
+
 > 📜 完整版本历史 → **[doc/tag-log.zh.md](./doc/tag-log.zh.md)**（倒序排列；修复 / 新增 / 优化 / 文档 各类分门别类）。
 
 ![Admin 控制台 · 概览](https://raw.githubusercontent.com/7as0nch/mimo2codex/main/images/admin-dashboard.png)
