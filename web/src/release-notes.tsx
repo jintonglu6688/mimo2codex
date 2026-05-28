@@ -52,12 +52,12 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     version: "0.5.6",
     date: "2026-05-28",
     title: {
-      en: "Long-conversation 400 hotfix — truncated tool calls auto-sanitized",
-      zh: "长对话 400 修复 —— 截断 tool call 自动清洗",
+      en: "Long-conversation 400 hotfix + desktop polish (PR #43)",
+      zh: "长对话 400 修复 + 桌面端打磨（PR #43）",
     },
     summary: {
-      en: "If your session has been dying mid-conversation with a cryptic \"unexpected end of data: line 1 column 46 (char 45)\" 400 — that's fixed. Sessions poisoned by older proxy versions are healed automatically on the next request; no manual action needed.",
-      zh: "如果你的对话用着用着就持续报 \"unexpected end of data: line 1 column 46 (char 45)\" —— 本版本修了。被旧版代理污染的历史会在下次请求时自动恢复，无需任何操作。",
+      en: "Fixes the long-running 400 \"unexpected end of data\" that silently broke chat sessions, plus a round of desktop UX improvements contributed by @starlsd93-sudo.",
+      zh: "修了长对话「unexpected end of data」400 错误，并打磨了一轮桌面端体验（感谢 @starlsd93-sudo 反馈）。",
     },
     highlights: [
       {
@@ -68,24 +68,47 @@ export const RELEASE_NOTES: ReleaseNote[] = [
           zh: "截断的 tool_call.arguments 不再污染会话",
         },
         description: {
-          en: "When an upstream stream ended mid tool-call (output token limit, network cut, cancel, thinking budget …), the truncated `arguments` JSON was getting persisted into Codex's session history. Every subsequent request then carried it and strict upstreams (MiMo / DeepSeek / SenseNova) rejected the whole conversation with a JSON parse 400 — the only fix used to be starting a new session. mimo2codex now sanitizes tool-call arguments at three layers (inbound stream, inbound non-stream, and outbound to the upstream) and rewrites unparseable ones to `\"{}\"`, with a clear log warning that names the cause. Existing poisoned sessions revive on their next request; new sessions are immune.",
-          zh: "上游 SSE 流在某次工具调用中途结束（输出 token 用尽、网络断、取消、思考预算用光……）时，那条被截断的 `arguments` JSON 会被 Codex 当成完整内容写进会话历史。从此该会话每次新请求都把它原样回放给严格上游（MiMo / DeepSeek / SenseNova），上游解析失败 400，会话直到新建为止都在持续报错。本版本在三个位置（流式入站、非流式入站、出站到上游）统一校验 tool_call.arguments，解析不动的一律改写为 `\"{}\"`，并打一条带因果的 WARN 日志。被污染的存量会话下次请求时自动恢复，新会话从此免疫。",
+          en: "If an upstream stream cut mid tool-call (length / network / cancel), the truncated `arguments` JSON used to stick to the session forever and 400 every later request. mimo2codex now salvages malformed args to `\"{}\"` at three layers. Poisoned sessions revive on the next request; new sessions are immune.",
+          zh: "上游流中途断了 tool call（长度 / 网络 / 取消）时，截断的 `arguments` JSON 之前会粘在会话里持续 400。本版本在三个位置自动改写为 `\"{}\"`，被污染的会话下次请求自动恢复，新会话直接免疫。",
         },
-        location: {
-          en: "Automatic — no configuration needed",
-          zh: "自动生效，无需任何配置",
-        },
+        location: { en: "Automatic", zh: "自动生效" },
       },
       {
         kind: "improved",
-        icon: <ApiOutlined />,
+        icon: <DesktopOutlined />,
         title: {
-          en: "Friendlier error if you do hit a malformed-field 400",
-          zh: "万一真撞上畸形字段 400，提示更友好",
+          en: "Desktop Settings: multi-provider + CLI import (PR #43)",
+          zh: "桌面端设置：多 provider 同框 + 一键导入 CLI 配置（PR #43）",
         },
         description: {
-          en: "For the rare case a malformed-field 400 still slips through (older proxy version, unrelated upstream quirk), the raw \"unexpected end of data\" upstream error is rewritten into a bilingual recovery hint instead of being dumped at the user.",
-          zh: "万一这种 400 仍然出现（比如还在用更老的 mimo2codex，或上游另有怪癖），原始 \"unexpected end of data\" 上游错误会被改写成双语恢复提示，不再把那段晦涩报文直接丢给用户。",
+          en: "MiMo / DeepSeek / Generic provider keys + base URLs configurable on one page. First-run detects an existing `~/.mimo2codex/.env` (follows the data-dir pointer for migrated installs) and offers a one-click import.",
+          zh: "MiMo / DeepSeek / Generic 三家的 API Key + Base URL 同框配置。首次启动会检测旧的 `~/.mimo2codex/.env`（迁过 dataDir 的用户按指针文件定位）并弹一键导入。",
+        },
+        location: { en: "Tray → Settings…", zh: "托盘 → Settings…" },
+      },
+      {
+        kind: "new",
+        icon: <DesktopOutlined />,
+        title: {
+          en: "Chinese app menu + top-bar Settings entry (PR #43)",
+          zh: "桌面端中文菜单 + 左上角设置入口（PR #43）",
+        },
+        description: {
+          en: "Unified Chinese menu on Win / Mac / Linux (文件 / 编辑 / 视图 / 窗口 / 帮助). 「文件 → 设置… (Ctrl+, / Cmd+,)」opens Settings directly — no more hunting in the tray.",
+          zh: "三平台统一中文菜单。「文件 → 设置… (Ctrl+, / Cmd+,)」直接弹设置窗，不用再绕系统托盘。",
+        },
+        location: { en: "App menu bar", zh: "顶部应用菜单" },
+      },
+      {
+        kind: "new",
+        icon: <DesktopOutlined />,
+        title: {
+          en: "Refreshed app icon (PR #43)",
+          zh: "应用图标升级（PR #43）",
+        },
+        description: {
+          en: "Higher-resolution orange branding contributed by @starlsd93-sudo — wired up on Windows, macOS, and docweb.",
+          zh: "更高分辨率的橙色图标（@starlsd93-sudo 投稿），Windows / macOS / docweb 三处都换上了。",
         },
       },
     ],

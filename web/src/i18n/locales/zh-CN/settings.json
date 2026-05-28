@@ -22,7 +22,9 @@
       "compact": "紧凑"
     },
     "saved": "已保存 {{key}}",
-    "savedHint": "切换主题或语言后无需刷新, 整站立即响应"
+    "savedHint": "切换主题或语言后无需刷新, 整站立即响应",
+    "desktopSettings": "桌面端设置",
+    "desktopSettingsTooltip": "打开 Electron 桌面端的 Settings 窗口（API key、端口、开机自启 等）"
   },
   "providers": {
     "title": "Provider 配置",

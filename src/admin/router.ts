@@ -274,6 +274,58 @@ async function handleApi(ctx: RouteContext): Promise<void> {
     });
   }
 
+  // GET /admin/api/desktop/sentinel — tell the admin UI whether it's running
+  // INSIDE the Electron desktop shell. The sidecar process spawned by the
+  // desktop main has MIMO2CODEX_DESKTOP_PARENT=1 injected into its env (see
+  // package/desktop/src/paths.ts → SidecarPaths.env). The admin React UI uses
+  // this to decide whether to show the "Open Desktop Settings" button — it
+  // only makes sense when there IS a desktop shell to call back to. This
+  // endpoint is unauthenticated on purpose: the answer is the same for every
+  // caller and contains no secrets.
+  if (req.method === "GET" && pathname === "/admin/api/desktop/sentinel") {
+    return sendJson(res, 200, {
+      inDesktop: process.env.MIMO2CODEX_DESKTOP_PARENT === "1",
+    });
+  }
+
+  // POST /admin/api/desktop/signal — body { action: "open-settings" }. The
+  // sidecar writes a one-line JSON to <dataDir>/.desktop-signal.json, which
+  // the Electron main watches via fs.watch and acts on (e.g. opening the
+  // Settings window). This indirection avoids exposing a custom protocol or
+  // running Electron's preload bridge inside the admin BrowserWindow.
+  // Locked to the in-desktop case so a stray POST from a browser tab on a
+  // CLI install can't make anything happen.
+  if (req.method === "POST" && pathname === "/admin/api/desktop/signal") {
+    if (process.env.MIMO2CODEX_DESKTOP_PARENT !== "1") {
+      return sendError(
+        res,
+        404,
+        "not_in_desktop",
+        "this endpoint is only available when running inside the desktop shell"
+      );
+    }
+    type Body = { action?: unknown };
+    const body = await readJsonBody<Body>(req);
+    const action = typeof body.action === "string" ? body.action : null;
+    if (action !== "open-settings") {
+      return sendError(res, 400, "invalid_action", "action must be 'open-settings'");
+    }
+    try {
+      const { writeFileSync } = await import("node:fs");
+      const signalPath = join(cfg.dataDir, ".desktop-signal.json");
+      writeFileSync(
+        signalPath,
+        JSON.stringify({ action, ts: Date.now() }) + "\n",
+        "utf8"
+      );
+      log.info("desktop signal written", { signalPath, action });
+      return sendJson(res, 200, { ok: true });
+    } catch (err) {
+      log.error("failed to write desktop signal", { error: (err as Error).message });
+      return sendError(res, 500, "signal_write_failed", (err as Error).message);
+    }
+  }
+
   // GET /admin/api/data-dir/info — current path + resolution source for the
   // settings UI. The SPA renders different copy depending on whether the user
   // can actually change the path (pointer/default) or not (cli/env).

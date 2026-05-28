@@ -9,6 +9,7 @@ import { IPC_CHANNEL, type RendererToMain, type MainToRenderer } from "../ipc.js
 import { log } from "../logger.js";
 import { appIconPath } from "../icons.js";
 import { getDataDir, setDataDir } from "../dataDir.js";
+import { detectLegacyEnv, importLegacyEnv } from "../importLegacy.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // dist/src/windows → dist/src → dist
@@ -64,8 +65,35 @@ export function openSettings(cb: SettingsCallbacks): void {
           env: readEnv(currentDir),
           isFirstRun: needsFirstRunSetup(currentDir),
           userDataDir: currentDir,
+          legacyEnv: detectLegacyEnv(currentDir),
         },
       });
+    } else if (msg.type === "settings:importLegacy") {
+      const currentDir = getDataDir();
+      try {
+        const result = importLegacyEnv(currentDir);
+        log.info("legacy env imported", {
+          sourcePath: result.sourcePath,
+          importedCount: Object.keys(result.imported).length,
+          skippedCount: Object.keys(result.skipped).length,
+        });
+        send({
+          type: "settings:legacyImported",
+          payload: {
+            imported: result.imported,
+            skipped: result.skipped,
+            sourcePath: result.sourcePath,
+          },
+        });
+      } catch (err) {
+        log.error("legacy env import failed", { error: (err as Error).message });
+        void dialog.showMessageBox(win, {
+          type: "error",
+          title: "Couldn't import legacy config",
+          message: "Failed to import the legacy CLI config.",
+          detail: (err as Error).message,
+        });
+      }
     } else if (msg.type === "settings:chooseDataDir") {
       void dialog.showOpenDialog(win, {
         title: "Choose data location",

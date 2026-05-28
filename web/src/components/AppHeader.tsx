@@ -17,6 +17,7 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import {
   CheckCircleFilled,
+  DesktopOutlined,
   KeyOutlined,
   LogoutOutlined,
   SettingOutlined,
@@ -53,6 +54,11 @@ export function AppHeader() {
   const [messageApi, msgCtx] = message.useMessage();
   const [section, setSection] = useState<Section | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  // Whether this admin UI is running inside the Electron desktop shell — set
+  // by the /desktop/sentinel endpoint at mount. null while loading; once we
+  // know, we either show the "Open Desktop Settings" button (true) or not
+  // (false / fetch error). See package/desktop/src/signalWatcher.ts.
+  const [inDesktop, setInDesktop] = useState<boolean | null>(null);
 
   // Pull provider key status on mount + every 30s so the chip stays in sync
   // when users add keys / restart out-of-band. Failures are silent — chip
@@ -74,6 +80,32 @@ export function AppHeader() {
       clearInterval(tid);
     };
   }, []);
+
+  // Probe the desktop sentinel once on mount. The flag never changes during
+  // a process lifetime, so no polling is needed. Fetch errors → render
+  // nothing (treat as not-in-desktop), which is the safe default.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await api.desktopSentinel();
+        if (!cancelled) setInDesktop(r.inDesktop);
+      } catch {
+        if (!cancelled) setInDesktop(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function openDesktopSettings() {
+    try {
+      await api.desktopSignal("open-settings");
+    } catch (err) {
+      messageApi.error((err as Error).message);
+    }
+  }
 
   async function saveSetting(key: string, value: string) {
     try {
@@ -149,6 +181,19 @@ export function AppHeader() {
           {t("modal.openBtn")}
         </Button>
       </Dropdown>
+      {inDesktop && (
+        <Button
+          size="small"
+          icon={<DesktopOutlined />}
+          onClick={() => void openDesktopSettings()}
+          title={t("ui.desktopSettingsTooltip", {
+            defaultValue:
+              "Open the Electron Settings window (API keys, port, autostart, …)",
+          })}
+        >
+          {t("ui.desktopSettings", { defaultValue: "Desktop Settings" })}
+        </Button>
+      )}
       <UserMenu />
       <SectionModal section={section} onClose={() => setSection(null)} />
     </Header>

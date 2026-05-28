@@ -578,6 +578,18 @@ export const api = {
   dataDirPreview: (targetDir: string) =>
     request<DataDirPreview>("POST", "/data-dir/preview", { targetDir }),
   dataDirMigrateStreamUrl: () => `${BASE}/data-dir/migrate`,
+  // ── Desktop shell integration (v0.5.6) ───────────────────────────────────
+  // Tell the admin UI whether it's running inside the Electron desktop app.
+  // Returns inDesktop=true only when the sidecar was spawned by the desktop
+  // (MIMO2CODEX_DESKTOP_PARENT=1 env var). UI uses this to decide whether to
+  // expose the "Open Desktop Settings" button.
+  desktopSentinel: () =>
+    request<{ inDesktop: boolean }>("GET", "/desktop/sentinel"),
+  // Signal the Electron main process via a file watcher (see
+  // package/desktop/src/signalWatcher.ts). action="open-settings" pops the
+  // Settings window. Only succeeds when inDesktop=true.
+  desktopSignal: (action: "open-settings") =>
+    request<{ ok: boolean }>("POST", "/desktop/signal", { action }),
 };
 
 // /admin/api/health extended response. Existing fields stay; `maintenance` and

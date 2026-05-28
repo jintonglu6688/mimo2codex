@@ -406,3 +406,59 @@ describe("admin REST — Codex 启用 routes", () => {
     expect(body.targets.find((t) => t.providerId === "deepseek")?.hasKey).toBe(false);
   });
 });
+
+describe("admin REST — desktop signal routes (A2)", () => {
+  // The sentinel + signal pair is the channel from the admin web UI back into
+  // the Electron desktop main process. We only manipulate MIMO2CODEX_DESKTOP_PARENT
+  // here — actual file-watcher dispatch is covered in the desktop package.
+  const originalEnv = process.env.MIMO2CODEX_DESKTOP_PARENT;
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env.MIMO2CODEX_DESKTOP_PARENT;
+    else process.env.MIMO2CODEX_DESKTOP_PARENT = originalEnv;
+  });
+
+  it("GET /admin/api/desktop/sentinel returns inDesktop=false when env not set", async () => {
+    delete process.env.MIMO2CODEX_DESKTOP_PARENT;
+    const r = await call("GET", "/admin/api/desktop/sentinel");
+    expect(r.status).toBe(200);
+    expect((r.json as { inDesktop: boolean }).inDesktop).toBe(false);
+  });
+
+  it("GET /admin/api/desktop/sentinel returns inDesktop=true when MIMO2CODEX_DESKTOP_PARENT=1", async () => {
+    process.env.MIMO2CODEX_DESKTOP_PARENT = "1";
+    const r = await call("GET", "/admin/api/desktop/sentinel");
+    expect(r.status).toBe(200);
+    expect((r.json as { inDesktop: boolean }).inDesktop).toBe(true);
+  });
+
+  it("POST /admin/api/desktop/signal returns 404 when not in desktop", async () => {
+    delete process.env.MIMO2CODEX_DESKTOP_PARENT;
+    const r = await call("POST", "/admin/api/desktop/signal", { action: "open-settings" });
+    expect(r.status).toBe(404);
+    expect((r.json as { error: { code: string } }).error.code).toBe("not_in_desktop");
+  });
+
+  it("POST /admin/api/desktop/signal writes signal file in desktop mode", async () => {
+    process.env.MIMO2CODEX_DESKTOP_PARENT = "1";
+    const r = await call("POST", "/admin/api/desktop/signal", { action: "open-settings" });
+    expect(r.status).toBe(200);
+    expect((r.json as { ok: boolean }).ok).toBe(true);
+    // The signal file lives in cfg.dataDir
+    const { readFileSync, existsSync } = await import("node:fs");
+    const signalPath = join(dataDir, ".desktop-signal.json");
+    expect(existsSync(signalPath)).toBe(true);
+    const body = JSON.parse(readFileSync(signalPath, "utf8")) as {
+      action: string;
+      ts: number;
+    };
+    expect(body.action).toBe("open-settings");
+    expect(typeof body.ts).toBe("number");
+  });
+
+  it("POST /admin/api/desktop/signal rejects unknown actions", async () => {
+    process.env.MIMO2CODEX_DESKTOP_PARENT = "1";
+    const r = await call("POST", "/admin/api/desktop/signal", { action: "ship-it" });
+    expect(r.status).toBe(400);
+    expect((r.json as { error: { code: string } }).error.code).toBe("invalid_action");
+  });
+});

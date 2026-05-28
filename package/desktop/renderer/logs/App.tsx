@@ -30,17 +30,23 @@ export function App() {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", padding: 8, fontFamily: "ui-monospace, monospace", fontSize: 12 }}>
       <div style={{ flex: 1, overflow: "auto", background: "#1e1e1e", color: "#ddd", padding: 8, borderRadius: 4 }}>
-        {lines.map((l, i) => (
-          <div key={i} style={{ color: l.channel === "stderr" ? "#ff8888" : "#ddd", whiteSpace: "pre-wrap" }}>
-            {l.text}
+        {lines.length === 0 ? (
+          <div style={{ color: "#888", padding: 4 }}>
+            等待 sidecar 输出…（如果一直没内容，说明 sidecar 已经启动完成且当前空闲；可以试一下「重启 sidecar」或发一次 codex 请求触发日志）
           </div>
-        ))}
+        ) : (
+          lines.map((l, i) => (
+            <div key={i} style={{ color: l.channel === "stderr" ? "#ff8888" : "#ddd", whiteSpace: "pre-wrap" }}>
+              {l.text}
+            </div>
+          ))
+        )}
         <div ref={bottomRef} />
       </div>
       <div style={{ marginTop: 8 }}>
         <Space>
-          <Button size="small" onClick={() => setLines([])}>Clear</Button>
-          <Checkbox checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)}>Auto-scroll</Checkbox>
+          <Button size="small" onClick={() => setLines([])}>清空</Button>
+          <Checkbox checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)}>自动滚动</Checkbox>
         </Space>
       </div>
     </div>

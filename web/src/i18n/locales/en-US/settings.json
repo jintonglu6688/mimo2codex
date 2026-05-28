@@ -22,7 +22,9 @@
       "compact": "Compact"
     },
     "saved": "Saved {{key}}",
-    "savedHint": "Theme & language changes apply instantly across the whole UI — no reload needed."
+    "savedHint": "Theme & language changes apply instantly across the whole UI — no reload needed.",
+    "desktopSettings": "Desktop Settings",
+    "desktopSettingsTooltip": "Open the Electron Settings window (API keys, port, autostart, …)"
   },
   "providers": {
     "title": "Provider Configuration",

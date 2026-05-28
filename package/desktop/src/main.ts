@@ -1,4 +1,4 @@
-import { app, shell } from "electron";
+import { app, dialog, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import * as http from "node:http";
@@ -11,6 +11,7 @@ import { loadRuntime, saveRuntime } from "./runtime.js";
 import { sidecarPaths } from "./paths.js";
 import { notifyCrash } from "./notifier.js";
 import { getDataDir } from "./dataDir.js";
+import { SignalWatcher } from "./signalWatcher.js";
 
 /**
  * Poll http://127.0.0.1:{port}/admin/ until the sidecar's HTTP server is
@@ -72,37 +73,8 @@ async function main(): Promise<void> {
   await app.whenReady();
   log.info("electron ready");
 
-  // macOS application menu — Edit roles enable Cmd+C/V in BrowserWindow text
-  // inputs (Task 6.1.1 — A4).
-  if (process.platform === "darwin") {
-    const { Menu } = await import("electron");
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      {
-        label: app.getName(),
-        submenu: [
-          { role: "about" },
-          { type: "separator" },
-          { role: "hide" },
-          { role: "hideOthers" },
-          { role: "unhide" },
-          { type: "separator" },
-          { role: "quit" },
-        ],
-      },
-      {
-        label: "Edit",
-        submenu: [
-          { role: "undo" },
-          { role: "redo" },
-          { type: "separator" },
-          { role: "cut" },
-          { role: "copy" },
-          { role: "paste" },
-          { role: "selectAll" },
-        ],
-      },
-    ]));
-  }
+  // Application menu — set up later after openSettingsWindow is defined,
+  // since "设置..." needs to call it directly.
 
   // ── Sidecar setup ───────────────────────────────────────────────────────
   // Resolve the effective data dir AFTER app.whenReady (getDataDir reads the
@@ -184,6 +156,10 @@ async function main(): Promise<void> {
       sidecar.setDataDir(userDataDir);
       sidecar.setPort(newPort);
       await sidecar.start();
+      // Re-target the signal watcher if the data dir moved — otherwise
+      // POST /admin/api/desktop/signal would write to the new dataDir while
+      // we keep watching the old one and nothing happens.
+      signalWatcher.setDataDir(userDataDir);
       log.info("sidecar restarted after settings save", { port: newPort, dataDir: userDataDir, showAdminUiAfterSave });
       if (showAdminUiAfterSave) openAdminWhenReady();
     },
@@ -219,6 +195,153 @@ async function main(): Promise<void> {
   };
   createTray(trayActions);
   log.info("tray created");
+
+  // 应用菜单（中文，跨平台）。Windows / Linux 默认菜单条全英文，且没有
+  // 「设置」入口；macOS 上 Electron 自带 App 菜单但条目英文。这里给三平台
+  // 统一一套中文菜单，含「设置...」入口（main 进程直接 open，无需走信号
+  // 通路）。Role-based 项目（undo/cut/reload/…）我们仍显式给中文 label，
+  // 不依赖系统 locale 推断。
+  {
+    const { Menu } = await import("electron");
+    const isMac = process.platform === "darwin";
+    const accelSettings = isMac ? "Cmd+," : "Ctrl+,";
+    const appName = app.getName();
+
+    const template: Electron.MenuItemConstructorOptions[] = [
+      ...(isMac
+        ? [{
+            label: appName,
+            submenu: [
+              { role: "about" as const, label: `关于 ${appName}` },
+              { type: "separator" as const },
+              {
+                label: "设置…",
+                accelerator: accelSettings,
+                click: () => openSettingsWindow(),
+              },
+              { type: "separator" as const },
+              { role: "hide" as const, label: `隐藏 ${appName}` },
+              { role: "hideOthers" as const, label: "隐藏其他" },
+              { role: "unhide" as const, label: "全部显示" },
+              { type: "separator" as const },
+              { role: "quit" as const, label: `退出 ${appName}` },
+            ],
+          }]
+        : []),
+      {
+        label: "文件",
+        submenu: [
+          ...(!isMac
+            ? [
+                {
+                  label: "设置…",
+                  accelerator: accelSettings,
+                  click: () => openSettingsWindow(),
+                },
+                { type: "separator" as const },
+              ]
+            : []),
+          {
+            label: "打开管理后台",
+            click: () => {
+              const st = sidecar.status();
+              if (st.kind === "running") {
+                void import("./windows/adminWebview.js").then(({ openAdminWindow }) =>
+                  openAdminWindow(st.port)
+                );
+              }
+            },
+          },
+          {
+            label: "查看日志",
+            click: () => {
+              void import("./windows/logs.js").then(({ openLogsWindow }) => openLogsWindow());
+            },
+          },
+          { type: "separator" as const },
+          ...(!isMac ? [{ role: "quit" as const, label: "退出" }] : []),
+        ],
+      },
+      {
+        label: "编辑",
+        submenu: [
+          { role: "undo" as const, label: "撤销" },
+          { role: "redo" as const, label: "重做" },
+          { type: "separator" as const },
+          { role: "cut" as const, label: "剪切" },
+          { role: "copy" as const, label: "复制" },
+          { role: "paste" as const, label: "粘贴" },
+          { role: "selectAll" as const, label: "全选" },
+        ],
+      },
+      {
+        label: "视图",
+        submenu: [
+          { role: "reload" as const, label: "重新加载" },
+          { role: "forceReload" as const, label: "强制重新加载" },
+          ...(!app.isPackaged
+            ? [{ role: "toggleDevTools" as const, label: "切换开发者工具" }]
+            : []),
+          { type: "separator" as const },
+          { role: "resetZoom" as const, label: "实际大小" },
+          { role: "zoomIn" as const, label: "放大" },
+          { role: "zoomOut" as const, label: "缩小" },
+          { type: "separator" as const },
+          { role: "togglefullscreen" as const, label: "全屏" },
+        ],
+      },
+      {
+        label: "窗口",
+        submenu: [
+          { role: "minimize" as const, label: "最小化" },
+          { role: "close" as const, label: "关闭窗口" },
+        ],
+      },
+      {
+        label: "帮助",
+        submenu: [
+          {
+            label: "GitHub 主页",
+            click: () => void shell.openExternal("https://github.com/7as0nch/mimo2codex"),
+          },
+          {
+            label: "查看文档",
+            click: () => void shell.openExternal("https://mimodoc.chengj.online"),
+          },
+          { type: "separator" as const },
+          {
+            label: `关于 ${appName}`,
+            click: () => {
+              void dialog
+                .showMessageBox({
+                  type: "info",
+                  title: `关于 ${appName}`,
+                  message: `${appName} v${app.getVersion()}`,
+                  detail:
+                    "Codex ↔ MiMo / DeepSeek / 通用 provider 的本地代理。\n\nhttps://github.com/7as0nch/mimo2codex",
+                  buttons: ["GitHub", "关闭"],
+                })
+                .then((r) => {
+                  if (r.response === 0) void shell.openExternal("https://github.com/7as0nch/mimo2codex");
+                });
+            },
+          },
+        ],
+      },
+    ];
+
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+    log.info("application menu installed", { platform: process.platform });
+  }
+
+  // Signal watcher (A2 — admin UI → desktop Settings entry).
+  // Admin React UI can't IPC into Electron main directly (no preload bridge
+  // on the admin BrowserWindow), so it POSTs to the sidecar which writes a
+  // file in dataDir; we watch that file here and dispatch.
+  const signalWatcher = new SignalWatcher(userDataDir, {
+    openSettings: openSettingsWindow,
+  });
+  signalWatcher.start();
 
   // Status updates push to tray (Task 7.3). MUST be registered before the
   // deferred sidecar.start() below — otherwise the "starting" / "running"
@@ -267,6 +390,11 @@ async function main(): Promise<void> {
     e.preventDefault();
     quitting = true;
     void (async () => {
+      try {
+        signalWatcher.stop();
+      } catch (err) {
+        log.warn("signal watcher stop on quit failed", { error: (err as Error).message });
+      }
       try {
         await sidecar.stop();
       } catch (err) {
