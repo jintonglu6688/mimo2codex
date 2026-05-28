@@ -602,6 +602,43 @@ function dedupeToolsByName(tools: ChatTool[]): ChatTool[] {
   return out;
 }
 
+// Defensive sanitizer for historical `function_call.arguments`.
+//
+// Bug context: Codex persists `tool_calls[].function.arguments` verbatim from
+// whatever `response.function_call_arguments.done` emitted in the previous turn.
+// If the upstream SSE stream finished mid tool-call (finish_reason="length",
+// network truncation, client cancel, thinking-budget exhaustion …) the
+// `arguments` string is **incomplete JSON**. From that point on, every
+// subsequent request in the same Codex session carries the bad tool-call in
+// its history, and strict upstreams (MiMo / DeepSeek / SenseNova …) reject
+// the request body with a JSON parse error such as
+//   400 BadRequest: unexpected end of data: line 1 column 46 (char 45)
+// pointing at the `arguments` field they tried to re-parse. The session
+// becomes unrecoverable until the user starts a new chat.
+//
+// Fix: on the way out, validate that `arguments` parses as JSON. If not,
+// replace with "{}" so the request reaches the upstream intact. Dropping the
+// whole tool-call would orphan its matching `tool` message (and break the
+// invariants maintained by removeOrphanToolMessages / ensureToolCallsHaveOutputs);
+// nulling just the arguments preserves the message-pair structure while
+// neutralizing the poison. The model loses visibility into what that
+// historical call's arguments were, but the conversation can continue.
+function sanitizeFunctionCallArguments(raw: unknown, name: string | undefined): string {
+  if (typeof raw !== "string" || raw.length === 0) {
+    return "{}";
+  }
+  try {
+    JSON.parse(raw);
+    return raw;
+  } catch (err) {
+    log.warn(
+      `salvaging malformed historical tool_call arguments → "{}" — name="${name ?? "?"}" len=${raw.length} ` +
+        `parse_err="${(err as Error).message}" preview=${JSON.stringify(raw.slice(0, 80))}`
+    );
+    return "{}";
+  }
+}
+
 function toolChoiceToChat(tc: ResponsesToolChoice | undefined): ChatToolChoice | undefined {
   if (tc === undefined) return undefined;
   if (typeof tc === "string") return tc;
@@ -754,7 +791,10 @@ function inputItemsToMessages(
         state.pendingToolCalls.push({
           id: item.call_id,
           type: "function",
-          function: { name: item.name, arguments: item.arguments },
+          function: {
+            name: item.name,
+            arguments: sanitizeFunctionCallArguments(item.arguments, item.name),
+          },
         });
         break;
       }

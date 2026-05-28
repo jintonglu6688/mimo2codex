@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { pipeChatStreamToResponses } from "../src/translate/streamToSse.js";
 import type { ChatStreamChunk, ResponsesRequest } from "../src/translate/types.js";
 import { makeMemorySink } from "../src/util/sse.js";
+import { log } from "../src/util/log.js";
 
 const req: ResponsesRequest = { model: "mimo-v2.5-pro", input: "hi", stream: true };
 
@@ -340,5 +341,132 @@ describe("streamToSse", () => {
       { exposeReasoning: true }
     );
     expect(result.usage).toBeNull();
+  });
+
+  describe("tool_call arguments salvage on truncated streams (long-conversation 400 defense)", () => {
+    it("emits salvaged '{}' arguments + WARN when stream ends with truncated JSON (finish_reason=length)", async () => {
+      const spy = vi.spyOn(log, "warn").mockImplementation(() => {});
+      const sink = makeMemorySink();
+      await pipeChatStreamToResponses(
+        sink,
+        {
+          chunks: fromList([
+            chunk({
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "shell", arguments: '{"command":["bash","-lc","echo a"],"work' },
+                },
+              ],
+            }),
+            chunk({}, "length"),
+          ]),
+        },
+        req,
+        { exposeReasoning: true }
+      );
+
+      const doneEvt = sink.events.find((e) => e.event === "response.function_call_arguments.done")!;
+      expect((doneEvt.data as { arguments: string }).arguments).toBe("{}");
+
+      const completed = sink.events.find((e) => e.event === "response.completed")!;
+      const resp = (completed.data as { response: { output: Array<{ type: string; arguments: string }> } }).response;
+      const fc = resp.output.find((o) => o.type === "function_call")!;
+      expect(fc.arguments).toBe("{}");
+
+      expect(spy).toHaveBeenCalledOnce();
+      const warn = spy.mock.calls[0][0] as string;
+      expect(warn).toContain('name="shell"');
+      expect(warn).toContain("stream truncated by length limit");
+      spy.mockRestore();
+    });
+
+    it("warns about the right finish_reason when stream is cancelled mid-arguments", async () => {
+      const spy = vi.spyOn(log, "warn").mockImplementation(() => {});
+      const sink = makeMemorySink();
+      await pipeChatStreamToResponses(
+        sink,
+        {
+          chunks: fromList([
+            chunk({
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "shell", arguments: '{"command":[' },
+                },
+              ],
+            }),
+            chunk({}, "stop"),
+          ]),
+        },
+        req,
+        { exposeReasoning: true }
+      );
+
+      const doneEvt = sink.events.find((e) => e.event === "response.function_call_arguments.done")!;
+      expect((doneEvt.data as { arguments: string }).arguments).toBe("{}");
+      const warn = spy.mock.calls[0][0] as string;
+      expect(warn).toContain('finish_reason="stop"');
+      spy.mockRestore();
+    });
+
+    it("valid JSON arguments pass through unchanged (no warning, zero overhead)", async () => {
+      const spy = vi.spyOn(log, "warn").mockImplementation(() => {});
+      const sink = makeMemorySink();
+      await pipeChatStreamToResponses(
+        sink,
+        {
+          chunks: fromList([
+            chunk({
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "shell", arguments: '{"command":["ls"]}' },
+                },
+              ],
+            }),
+            chunk({}, "tool_calls"),
+          ]),
+        },
+        req,
+        { exposeReasoning: true }
+      );
+      const doneEvt = sink.events.find((e) => e.event === "response.function_call_arguments.done")!;
+      expect((doneEvt.data as { arguments: string }).arguments).toBe('{"command":["ls"]}');
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    it("empty arguments buffer is left empty (no JSON to salvage; no warning)", async () => {
+      // Upstream emitted no argument deltas at all (rare but valid for
+      // zero-arg tool calls — model emits the call header and finishes).
+      const spy = vi.spyOn(log, "warn").mockImplementation(() => {});
+      const sink = makeMemorySink();
+      await pipeChatStreamToResponses(
+        sink,
+        {
+          chunks: fromList([
+            chunk({
+              tool_calls: [
+                { index: 0, id: "call_1", type: "function", function: { name: "ping" } },
+              ],
+            }),
+            chunk({}, "tool_calls"),
+          ]),
+        },
+        req,
+        { exposeReasoning: true }
+      );
+      const doneEvt = sink.events.find((e) => e.event === "response.function_call_arguments.done")!;
+      expect((doneEvt.data as { arguments: string }).arguments).toBe("");
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
   });
 });

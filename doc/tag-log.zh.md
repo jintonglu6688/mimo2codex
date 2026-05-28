@@ -17,7 +17,13 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 ---
 
-## v0.5.4 — 待发布
+## v0.5.6
+
+- **[fix]** **长对话 400 "unexpected end of data: line 1 column 46 (char 45)"**：上游 SSE 流在某次工具调用中途结束（输出 token 用尽、网络中断、客户端取消、思考预算用光……）时，Codex 会把那条**被截断的 `tool_call.arguments`** 当成完整 JSON 持久化进会话历史。从此该会话每次新请求都把这条坏 tool call 原样回放给严格上游（MiMo / DeepSeek / SenseNova……），上游在校验阶段重新 `json.loads` 这个字符串字段时在截断点炸出 400 —— 会话看起来"用着用着就坏了"，必须新建对话才能恢复。本版本加了**三层防御**：(1) 流式回传到 Codex 之前（`streamToSse.finalizeToolCalls`），先校验累加好的 `argsBuffer` 能否 `JSON.parse`，不能就替换为 `"{}"` 并 WARN 一条带因果的日志（长度截断 vs. 其它），让坏值根本不会写进 Codex 历史；(2) 非流式 `respToResponses` 同样设防；(3) 出站到上游之前（`reqToChat` 的 `function_call` 分支），对历史 `arguments` 再校验一次失败就改写 `"{}"` —— 这让被旧版代理污染的存量会话立刻恢复正常。配对的 `tool` 消息保持原样、`removeOrphanToolMessages` / `ensureToolCallsHaveOutputs` 不变。万一上游真返回了这种 400，`contextOverflow.detectMalformedJsonField` 会把原始报错改写成双语恢复提示（"升级到新版 mimo2codex / 或新建 codex 会话"）而不是把那段晦涩报文丢给用户。
+
+---
+
+## v0.5.5
 
 - **[new]** **Windows / macOS 桌面端正式发布（不再 beta）**：经过 v0.4.8 起的 beta 验证，桌面端转 GA。后台跑 mimo2codex、系统托盘 / 顶栏图标管理、admin UI 一键打开、自更新链路全部就绪。命令行版（`npm install -g mimo2codex`）依然不变，两者可共存。下载入口：<https://mimodoc.chengj.online/download>。
 - **[fix]** **`tool_search` 工具支持（[issue #41](https://github.com/7as0nch/mimo2codex/issues/41)）**：Codex Desktop 的延迟工具发现工具之前被当未知类型丢，模型发现不了延迟加载的工具，还会刷一串 orphan 警告。现在翻成普通 function 工具，恢复正常。

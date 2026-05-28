@@ -2119,4 +2119,97 @@ describe("reqToChat — orphan tool message scrub (PR #10 regression)", () => {
       expect(fn.function.name).toBe("tool_search");
     });
   });
+
+  describe("historical function_call arguments sanitization (long-conversation 400 defense)", () => {
+    // Repro for the "unexpected end of data: line 1 column 46 (char 45)" 400
+    // that strict upstreams (MiMo / DeepSeek / SenseNova) throw once a Codex
+    // session has accumulated a truncated tool_call.arguments. The proxy now
+    // salvages malformed arguments to "{}" on the way out so the request body
+    // is always well-formed.
+    it("valid JSON arguments pass through unchanged (zero-overhead happy path)", () => {
+      const req: ResponsesRequest = {
+        model: "mimo-v2.5-pro",
+        input: [
+          { type: "message", role: "user", content: [{ type: "input_text", text: "ls" }] },
+          {
+            type: "function_call",
+            call_id: "c1",
+            name: "shell",
+            arguments: '{"command":["ls"]}',
+          },
+          { type: "function_call_output", call_id: "c1", output: "a\nb" },
+        ],
+      };
+      const chat = reqToChat(req);
+      const assistant = chat.messages.find((m) => m.role === "assistant")!;
+      expect(assistant.tool_calls![0].function.arguments).toBe('{"command":["ls"]}');
+    });
+
+    it("truncated JSON arguments are salvaged to '{}'", () => {
+      const spy = vi.spyOn(log, "warn").mockImplementation(() => {});
+      const truncated =
+        '{"command":["bash","-lc","echo a"],"workdir":'; // breaks at char 45
+      const req: ResponsesRequest = {
+        model: "mimo-v2.5-pro",
+        input: [
+          { type: "message", role: "user", content: [{ type: "input_text", text: "?" }] },
+          {
+            type: "function_call",
+            call_id: "c1",
+            name: "shell",
+            arguments: truncated,
+          },
+          { type: "function_call_output", call_id: "c1", output: "x" },
+        ],
+      };
+      const chat = reqToChat(req);
+      const assistant = chat.messages.find((m) => m.role === "assistant")!;
+      expect(assistant.tool_calls![0].function.arguments).toBe("{}");
+      expect(spy).toHaveBeenCalledOnce();
+      const warnMsg = spy.mock.calls[0][0] as string;
+      expect(warnMsg).toContain('name="shell"');
+      expect(warnMsg).toContain("salvaging malformed historical tool_call arguments");
+      spy.mockRestore();
+    });
+
+    it("empty string arguments become '{}'", () => {
+      const req: ResponsesRequest = {
+        model: "mimo-v2.5-pro",
+        input: [
+          { type: "message", role: "user", content: "?" },
+          { type: "function_call", call_id: "c1", name: "ping", arguments: "" },
+          { type: "function_call_output", call_id: "c1", output: "ok" },
+        ],
+      };
+      const chat = reqToChat(req);
+      const assistant = chat.messages.find((m) => m.role === "assistant")!;
+      expect(assistant.tool_calls![0].function.arguments).toBe("{}");
+    });
+
+    it("salvage preserves the assistant↔tool message pairing (no orphan)", () => {
+      // Critical regression: if sanitization dropped the whole tool_call we
+      // would orphan the matching `tool` message and DeepSeek V4 would 400
+      // with "tool message has no preceding tool_calls". Keep structure intact.
+      const req: ResponsesRequest = {
+        model: "mimo-v2.5-pro",
+        input: [
+          { type: "message", role: "user", content: "?" },
+          {
+            type: "function_call",
+            call_id: "c_broken",
+            name: "shell",
+            arguments: '{"command":["bash","-lc","echo a"],"work', // truncated
+          },
+          { type: "function_call_output", call_id: "c_broken", output: "x" },
+        ],
+      };
+      const chat = reqToChat(req);
+      const assistant = chat.messages.find((m) => m.role === "assistant")!;
+      const tool = chat.messages.find((m) => m.role === "tool")!;
+      expect(assistant.tool_calls).toHaveLength(1);
+      expect(assistant.tool_calls![0].id).toBe("c_broken");
+      expect(assistant.tool_calls![0].function.arguments).toBe("{}");
+      expect(tool.tool_call_id).toBe("c_broken");
+    });
+  });
 });

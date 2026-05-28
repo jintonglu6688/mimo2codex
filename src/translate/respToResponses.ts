@@ -12,6 +12,36 @@ import {
   newResponseId,
 } from "../util/ids.js";
 import { applyInlineThinkSplitToMessage } from "./minimaxCompat.js"; // minimax-compat
+import { log } from "../util/log.js";
+
+// Same defense as streamToSse's salvageToolCallArguments, applied to
+// non-streaming responses. Upstream can still return malformed JSON in
+// `tool_calls[].function.arguments` (truncated by length limit, model
+// hallucination, etc.). If we forward it verbatim Codex persists it and
+// every subsequent request fails at the strict upstream with
+//   "unexpected end of data: line 1 column N (char N-1)"
+// because that string field gets re-parsed there. Salvage to "{}".
+function salvageToolCallArguments(
+  raw: string | undefined,
+  ctx: { name: string; callId: string; finishReason: string }
+): string {
+  if (typeof raw !== "string" || raw.length === 0) return raw ?? "";
+  try {
+    JSON.parse(raw);
+    return raw;
+  } catch (err) {
+    const reason =
+      ctx.finishReason === "length"
+        ? "response truncated by length limit — try raising max_completion_tokens or shrinking the conversation"
+        : `upstream returned malformed JSON in arguments (finish_reason="${ctx.finishReason}")`;
+    log.warn(
+      `tool_call arguments not valid JSON; salvaged to "{}" — name="${ctx.name}" call_id="${ctx.callId}" ` +
+        `len=${raw.length} parse_err="${(err as Error).message}" cause: ${reason}. ` +
+        `preview=${JSON.stringify(raw.slice(0, 80))}`
+    );
+    return "{}";
+  }
+}
 
 export interface RespToResponsesOpts {
   exposeReasoning: boolean;
@@ -108,6 +138,8 @@ export function respToResponses(
     });
   }
 
+  const finishReason = choice?.finish_reason ?? "stop";
+
   if (message?.tool_calls && message.tool_calls.length > 0) {
     for (const tc of message.tool_calls) {
       const item: ResponsesOutputItem & { namespace?: string } = {
@@ -115,7 +147,11 @@ export function respToResponses(
         id: newFunctionCallId(),
         call_id: tc.id,
         name: tc.function.name,
-        arguments: tc.function.arguments,
+        arguments: salvageToolCallArguments(tc.function.arguments, {
+          name: tc.function.name,
+          callId: tc.id,
+          finishReason,
+        }),
         status: "completed",
       };
       const ns = opts.namespaceMap?.get(tc.function.name);
@@ -124,7 +160,6 @@ export function respToResponses(
     }
   }
 
-  const finishReason = choice?.finish_reason ?? "stop";
   const incomplete = finishReason === "length" ? { reason: "max_output_tokens" } : null;
 
   return {

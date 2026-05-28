@@ -14,7 +14,7 @@
 // CTA that navigates straight to it.
 
 import type { ReactNode } from "react";
-import { ApiOutlined, DesktopOutlined } from "@ant-design/icons";
+import { ApiOutlined, DesktopOutlined, BugOutlined } from "@ant-design/icons";
 
 export interface BilingualText {
   en: string;
@@ -48,6 +48,48 @@ export interface ReleaseNote {
 // here so the in-app "What's new" modal stays tight — older release detail
 // lives in doc/tag-log.{md,zh.md} for users who want the full history.
 export const RELEASE_NOTES: ReleaseNote[] = [
+  {
+    version: "0.5.6",
+    date: "2026-05-28",
+    title: {
+      en: "Long-conversation 400 hotfix — truncated tool calls auto-sanitized",
+      zh: "长对话 400 修复 —— 截断 tool call 自动清洗",
+    },
+    summary: {
+      en: "If your session has been dying mid-conversation with a cryptic \"unexpected end of data: line 1 column 46 (char 45)\" 400 — that's fixed. Sessions poisoned by older proxy versions are healed automatically on the next request; no manual action needed.",
+      zh: "如果你的对话用着用着就持续报 \"unexpected end of data: line 1 column 46 (char 45)\" —— 本版本修了。被旧版代理污染的历史会在下次请求时自动恢复，无需任何操作。",
+    },
+    highlights: [
+      {
+        kind: "fixed",
+        icon: <BugOutlined />,
+        title: {
+          en: "Truncated tool_call.arguments no longer poison the session",
+          zh: "截断的 tool_call.arguments 不再污染会话",
+        },
+        description: {
+          en: "When an upstream stream ended mid tool-call (output token limit, network cut, cancel, thinking budget …), the truncated `arguments` JSON was getting persisted into Codex's session history. Every subsequent request then carried it and strict upstreams (MiMo / DeepSeek / SenseNova) rejected the whole conversation with a JSON parse 400 — the only fix used to be starting a new session. mimo2codex now sanitizes tool-call arguments at three layers (inbound stream, inbound non-stream, and outbound to the upstream) and rewrites unparseable ones to `\"{}\"`, with a clear log warning that names the cause. Existing poisoned sessions revive on their next request; new sessions are immune.",
+          zh: "上游 SSE 流在某次工具调用中途结束（输出 token 用尽、网络断、取消、思考预算用光……）时，那条被截断的 `arguments` JSON 会被 Codex 当成完整内容写进会话历史。从此该会话每次新请求都把它原样回放给严格上游（MiMo / DeepSeek / SenseNova），上游解析失败 400，会话直到新建为止都在持续报错。本版本在三个位置（流式入站、非流式入站、出站到上游）统一校验 tool_call.arguments，解析不动的一律改写为 `\"{}\"`，并打一条带因果的 WARN 日志。被污染的存量会话下次请求时自动恢复，新会话从此免疫。",
+        },
+        location: {
+          en: "Automatic — no configuration needed",
+          zh: "自动生效，无需任何配置",
+        },
+      },
+      {
+        kind: "improved",
+        icon: <ApiOutlined />,
+        title: {
+          en: "Friendlier error if you do hit a malformed-field 400",
+          zh: "万一真撞上畸形字段 400，提示更友好",
+        },
+        description: {
+          en: "For the rare case a malformed-field 400 still slips through (older proxy version, unrelated upstream quirk), the raw \"unexpected end of data\" upstream error is rewritten into a bilingual recovery hint instead of being dumped at the user.",
+          zh: "万一这种 400 仍然出现（比如还在用更老的 mimo2codex，或上游另有怪癖），原始 \"unexpected end of data\" 上游错误会被改写成双语恢复提示，不再把那段晦涩报文直接丢给用户。",
+        },
+      },
+    ],
+  },
   {
     version: "0.5.4",
     date: "2026-05-27",

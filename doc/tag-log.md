@@ -17,7 +17,13 @@ Release history of mimo2codex, newest first.
 
 ---
 
-## v0.5.4 — coming
+## v0.5.6
+
+- **[fix]** **Long-conversation 400 "unexpected end of data: line 1 column 46 (char 45)"**: once an upstream stream finished mid tool-call (length limit, network cut, client cancel, thinking-budget exhaustion …), Codex persisted the **truncated `tool_call.arguments`** as part of the session history. From that point on, every subsequent request in the same session carried the malformed JSON-as-string field, and strict upstreams (MiMo / DeepSeek / SenseNova …) rejected the request body with a JSON parser error pointing at the truncation point — the session looked permanently broken until the user started a new chat. mimo2codex now sanitizes tool-call arguments at **three layers**: (1) on the way *back* to Codex during streaming (`streamToSse.finalizeToolCalls`) — invalid JSON is salvaged to `"{}"` with a clear WARN that names the cause (length truncation vs. other), so the bad value never reaches Codex's history in the first place; (2) the same defense on the non-streaming path (`respToResponses`); (3) on the way *out* to the upstream (`reqToChat`'s `function_call` branch) — historical `arguments` that failed validation are likewise rewritten to `"{}"`, which immediately revives sessions poisoned by older proxy versions. The matching `tool` message stays paired with the assistant turn (the `removeOrphanToolMessages` / `ensureToolCallsHaveOutputs` invariant is preserved). For the rare case the upstream still returns this shape, `contextOverflow.detectMalformedJsonField` rewrites the raw 400 into a bilingual recovery hint ("upgrade or start a new codex session") instead of dumping the cryptic upstream error at the user.
+
+---
+
+## v0.5.5
 
 - **[new]** **Windows / macOS desktop app goes GA (no longer beta)**: after the beta-testing window that started with v0.4.8, the desktop app is now stable. Runs mimo2codex in the background; tray / menu-bar icon management; one-click admin UI; auto-update wired up. The CLI install (`npm install -g mimo2codex`) is unchanged and can coexist. Downloads: <https://mimodoc.chengj.online/download>.
 - **[fix]** **`tool_search` builtin now supported ([issue #41](https://github.com/7as0nch/mimo2codex/issues/41))**: Codex Desktop's deferred-tool-discovery tool was previously dropped as an unknown type, blocking deferred tool discovery and triggering cascading orphan warnings. It's now translated to a regular function tool — works normally.

@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { respToResponses } from "../src/translate/respToResponses.js";
 import type { ChatResponse, ResponsesRequest } from "../src/translate/types.js";
+import { log } from "../src/util/log.js";
 
 const baseReq: ResponsesRequest = { model: "mimo-v2.5-pro", input: "hi" };
 
@@ -217,5 +218,60 @@ describe("respToResponses", () => {
     expect(msg.content[0].annotations[0].url).toBe("https://example.com/wx");
     expect(msg.content[0].annotations[0].title).toBe("Shanghai weather");
     expect(msg.content[0].annotations[0].snippet).toBe("tomorrow cloudy");
+  });
+
+  describe("tool_call arguments salvage (long-conversation 400 defense)", () => {
+    it("valid JSON arguments pass through unchanged", () => {
+      const r = respToResponses(
+        makeChat({
+          content: null,
+          toolCalls: [{ id: "c1", name: "shell", args: '{"command":["ls"]}' }],
+          finish: "tool_calls",
+        }),
+        baseReq,
+        { exposeReasoning: true }
+      );
+      const fc = r.output[0] as { arguments: string };
+      expect(fc.arguments).toBe('{"command":["ls"]}');
+    });
+
+    it("truncated arguments under finish_reason=length are salvaged to '{}'", () => {
+      const spy = vi.spyOn(log, "warn").mockImplementation(() => {});
+      const r = respToResponses(
+        makeChat({
+          content: null,
+          toolCalls: [
+            { id: "c1", name: "shell", args: '{"command":["bash","-lc","echo a"],"work' },
+          ],
+          finish: "length",
+        }),
+        baseReq,
+        { exposeReasoning: true }
+      );
+      const fc = r.output[0] as { arguments: string };
+      expect(fc.arguments).toBe("{}");
+      expect(spy).toHaveBeenCalledOnce();
+      const warn = spy.mock.calls[0][0] as string;
+      expect(warn).toContain('name="shell"');
+      expect(warn).toContain("response truncated by length limit");
+      spy.mockRestore();
+    });
+
+    it("malformed JSON under finish_reason=stop is still salvaged (model produced bad JSON)", () => {
+      const spy = vi.spyOn(log, "warn").mockImplementation(() => {});
+      const r = respToResponses(
+        makeChat({
+          content: null,
+          toolCalls: [{ id: "c1", name: "f", args: "not json at all" }],
+          finish: "stop",
+        }),
+        baseReq,
+        { exposeReasoning: true }
+      );
+      const fc = r.output[0] as { arguments: string };
+      expect(fc.arguments).toBe("{}");
+      expect(spy).toHaveBeenCalledOnce();
+      spy.mockRestore();
+    });
   });
 });

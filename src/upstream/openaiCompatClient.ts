@@ -1,7 +1,7 @@
 import type { ChatRequest, ResponsesRequest } from "../translate/types.js";
 import { log, redactKey } from "../util/log.js";
 import type { ProviderEnhancedError } from "../providers/types.js";
-import { detectContextOverflow } from "./contextOverflow.js";
+import { detectContextOverflow, detectMalformedJsonField } from "./contextOverflow.js";
 
 export type ContextOverflowMode = "friendly" | "passthrough";
 
@@ -180,6 +180,12 @@ async function postUpstream(
         modelId: cfg.modelInfo?.id,
         contextWindow: cfg.modelInfo?.contextWindow,
       });
+    }
+    if (!enhanced) {
+      // Independent of contextOverflowMode — the malformed-field hint is a
+      // diagnostic, not a UX rewrite of a known-bad-prompt case. Surface it
+      // even when contextOverflowMode === "passthrough".
+      enhanced = detectMalformedJsonField({ status: res.status, snippet });
     }
     const code = enhanced?.code ?? defaultErrorCode(res.status);
     const message = enhanced?.message ?? `upstream returned ${res.status}: ${snippet ?? "(no body)"}`;
