@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { Config } from "./config.js";
 import { respToResponses } from "./translate/respToResponses.js";
 import { pipeChatStreamToResponses, type StreamPipelineResult } from "./translate/streamToSse.js";
+import { modelSupportsImages } from "./translate/reqToChat.js";
 import { iterChatStreamChunks } from "./upstream/chatStream.js";
 import {
   callOpenAICompat,
@@ -386,6 +387,54 @@ function rewriteWarning(notice: { from: string; to: string; reason: string }): {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Vision (multimodal) fallback
+// ---------------------------------------------------------------------------
+
+// 读取 DB 设置，返回 vision fallback 模型名；未启用或 admin 关闭时返回 null。
+function resolveVisionFallback(cfg: Config): string | null {
+  if (!cfg.adminEnabled) return null;
+  try {
+    if (getSetting("codex.visionFallbackEnabled") !== "1") return null;
+    const model = getSetting("codex.visionFallbackModel");
+    return model || "mimo-v2.5";
+  } catch {
+    return null;
+  }
+}
+
+// 检测 Responses API 请求是否包含图片（input_image 类型）。
+function requestContainsImages(payload: ResponsesRequest): boolean {
+  if (!Array.isArray(payload.input)) return false;
+  for (const item of payload.input) {
+    if (item.type === "message" && Array.isArray(item.content)) {
+      for (const part of item.content) {
+        if (part.type === "input_image") return true;
+      }
+    }
+    // function_call_output 也可能包含图片（tool 返回的图片）
+    if (item.type === "function_call_output" && Array.isArray(item.output)) {
+      for (const part of item.output) {
+        if (part.type === "input_image") return true;
+      }
+    }
+  }
+  return false;
+}
+
+// 检测 Chat Completions API 请求是否包含图片（image_url 类型）。
+function chatRequestContainsImages(payload: ChatRequest): boolean {
+  if (!Array.isArray(payload.messages)) return false;
+  for (const msg of payload.messages) {
+    if (Array.isArray(msg.content)) {
+      for (const part of msg.content) {
+        if (part.type === "image_url") return true;
+      }
+    }
+  }
+  return false;
+}
+
 /**
  * 从 Codex 请求的 tools 数组中提取 namespace 映射：toolName → namespaceName。
  * Codex Desktop 期望响应中的 function_call 带 namespace 字段才能路由到正确 handler。
@@ -457,6 +506,27 @@ async function handleResponses(
     cfg,
     readActiveOverrideSafely(cfg)
   );
+  // 多模态 fallback：请求含图片但 model 不支持 vision → 自动切换。
+  const visionFallbackModel = resolveVisionFallback(cfg);
+  if (visionFallbackModel) {
+    const effectiveModel = selectedRaw.upstreamModel;
+    if (!modelSupportsImages(effectiveModel) && requestContainsImages(payload)) {
+      const resolved = selectedRaw.provider.resolveModel(visionFallbackModel);
+      const newModel = resolved?.id ?? visionFallbackModel;
+      selectedRaw.rewriteNotice = {
+        from: effectiveModel,
+        to: newModel,
+        reason: `multimodal fallback — request contains images but model "${effectiveModel}" does not support vision`,
+      };
+      selectedRaw.upstreamModel = newModel;
+      selectedRaw.modelInfo = resolved ?? selectedRaw.modelInfo;
+      log.info("vision fallback applied", {
+        from: effectiveModel,
+        to: newModel,
+        provider: selectedRaw.provider.id,
+      });
+    }
+  }
   const { provider, upstreamModel, modelInfo, rewriteNotice } = selectedRaw;
   // BYOK: if a logged-in user has stored their own upstream API key for this
   // provider, swap it into the runtime. Local-mode / shared-key users keep
@@ -1091,6 +1161,27 @@ async function handleChatPassthrough(
     cfg,
     readActiveOverrideSafely(cfg)
   );
+  // 多模态 fallback（chat completions 路径）：请求含图片但 model 不支持 vision → 自动切换。
+  const visionFallbackModel = resolveVisionFallback(cfg);
+  if (visionFallbackModel) {
+    const effectiveModel = selectedRaw.upstreamModel;
+    if (!modelSupportsImages(effectiveModel) && chatRequestContainsImages(payload)) {
+      const resolved = selectedRaw.provider.resolveModel(visionFallbackModel);
+      const newModel = resolved?.id ?? visionFallbackModel;
+      selectedRaw.rewriteNotice = {
+        from: effectiveModel,
+        to: newModel,
+        reason: `multimodal fallback — request contains images but model "${effectiveModel}" does not support vision`,
+      };
+      selectedRaw.upstreamModel = newModel;
+      selectedRaw.modelInfo = resolved ?? selectedRaw.modelInfo;
+      log.info("vision fallback applied", {
+        from: effectiveModel,
+        to: newModel,
+        provider: selectedRaw.provider.id,
+      });
+    }
+  }
   const { provider, upstreamModel, modelInfo, rewriteNotice } = selectedRaw;
   const { runtime, source: apiKeySource } = resolveRuntimeForUser(
     selectedRaw.runtime,

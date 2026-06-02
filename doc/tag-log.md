@@ -17,6 +17,10 @@ Release history of mimo2codex, newest first.
 
 ---
 
+## feat/multimodal-fallback
+
+- **[new]** **Multimodal fallback: auto-switch to vision model when images are detected**: when a request contains images but the active model doesn't support vision (e.g. `mimo-v2.5-pro`), the proxy now automatically rewrites the upstream model to a vision-capable one (default `mimo-v2.5`) so images are processed instead of silently dropped. Toggle and model selection are in the admin UI → Codex Integration → "Thinking & Runtime Overrides" tab. Disabled by default — enable it when your workflow mixes vision and non-vision models.
+
 ## v0.5.21 (upcoming)
 
 - **[fix]** **Sustained 429 rate limits no longer break the session (follow-up to v0.5.20's retry)**: v0.5.20 added proxy-side 429/5xx retry, but the default budget (3 retries, ~3.5s) only outlasted sub-second blips. Real per-minute quota limits (`429 Too many requests / limitation`, often *without* a `Retry-After` header) still exhausted it, so the raw 429 was forwarded to Codex, which then burned its own retries and surfaced "exceeded retry limit, last status: 429" again. The default retry budget is now larger: **6 retries with exponential backoff capped at 12s (~28s total)**, so a multi-second quota limit clears before we give up. Still abortable, still honors `Retry-After` when present, and still tunable via `MIMO2CODEX_UPSTREAM_MAX_RETRIES` (now up to 12) / `MIMO2CODEX_UPSTREAM_RETRY_BASE_MS`. Trade-off: while rate-limited, a single request now waits up to ~28s before failing instead of ~3.5s.

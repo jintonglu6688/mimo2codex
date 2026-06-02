@@ -17,6 +17,10 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 ---
 
+## feat/multimodal-fallback
+
+- **[new]** **多模态 Fallback：检测到图片时自动切换 vision 模型**：当请求包含图片但当前模型不支持 vision（如 `mimo-v2.5-pro`）时，代理自动将 upstream model 重写为多模态模型（默认 `mimo-v2.5`），避免图片被静默丢弃。开关和模型选择在 admin UI → Codex 接入 →「思考与运行时覆盖」标签页。默认关闭——需要混合 vision / 非 vision 模型时开启。
+
 ## v0.5.21 (upcoming)
 
 - **[fix]** **持续型 429 限流不再中断会话（v0.5.20 重试的补强）**：v0.5.20 加了代理侧的 429/5xx 重试，但默认预算（重试 3 次、约 3.5 秒）只能扛住亚秒级抖动。真正按分钟计的配额限流（`429 Too many requests / limitation`，且经常**不带 `Retry-After` 头**）仍会把预算耗尽，于是原始 429 被透传给 Codex，Codex 再耗尽自己的重试，又报出「exceeded retry limit, last status: 429」。现在默认重试预算放大为：**重试 6 次、指数退避封顶 12 秒（总计约 28 秒）**，让几秒到几十秒的配额限流在放弃前自行解除。仍可被取消、仍尊重上游的 `Retry-After`、仍可通过 `MIMO2CODEX_UPSTREAM_MAX_RETRIES`（上限提到 12）/ `MIMO2CODEX_UPSTREAM_RETRY_BASE_MS` 调整。代价：限流期间单个请求最长会等约 28 秒才失败，而不是原来的约 3.5 秒。

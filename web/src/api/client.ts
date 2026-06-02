@@ -608,6 +608,10 @@ export const api = {
     request<{ ok: boolean }>("PUT", "/thinking-state", { disabled }),
   setForceHighEffort: (forceHighEffort: boolean) =>
     request<{ ok: boolean }>("PUT", "/thinking-state", { forceHighEffort }),
+  visionFallback: () =>
+    request<{ enabled: boolean; model: string }>("GET", "/vision-fallback"),
+  setVisionFallback: (body: { enabled?: boolean; model?: string }) =>
+    request<{ ok: boolean }>("PUT", "/vision-fallback", body),
   logSettings: () => request<LogSettingsResponse>("GET", "/log-settings"),
   setSilentRewrite: (silentRewrite: boolean) =>
     request<{ ok: boolean }>("PUT", "/log-settings", { silentRewrite }),

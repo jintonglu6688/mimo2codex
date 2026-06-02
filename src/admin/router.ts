@@ -1003,6 +1003,57 @@ async function handleApi(ctx: RouteContext): Promise<void> {
     return sendError(res, 405, "method_not_allowed", "use GET or PUT");
   }
 
+  // GET/PUT /admin/api/vision-fallback — multimodal fallback toggle + model.
+  // When enabled, requests containing images are automatically routed to a
+  // vision-capable model even if the client's model doesn't support images.
+  if (pathname === "/admin/api/vision-fallback") {
+    if (req.method === "GET") {
+      const enabled = (() => {
+        try {
+          return getSetting("codex.visionFallbackEnabled") === "1";
+        } catch {
+          return false;
+        }
+      })();
+      const model = (() => {
+        try {
+          return getSetting("codex.visionFallbackModel") || "mimo-v2.5";
+        } catch {
+          return "mimo-v2.5";
+        }
+      })();
+      return sendJson(res, 200, { enabled, model });
+    }
+    if (req.method === "PUT") {
+      const body = await readJsonBody<{ enabled?: unknown; model?: unknown }>(req);
+      let changed = false;
+      if (typeof body.enabled === "boolean") {
+        setSetting("codex.visionFallbackEnabled", body.enabled ? "1" : "0");
+        log.info(`codex.visionFallbackEnabled set to ${body.enabled} via admin UI`);
+        changed = true;
+      }
+      if (typeof body.model === "string") {
+        const trimmed = body.model.trim();
+        if (!trimmed) {
+          return sendError(res, 400, "invalid_body", "model must be a non-empty string");
+        }
+        setSetting("codex.visionFallbackModel", trimmed);
+        log.info(`codex.visionFallbackModel set to "${trimmed}" via admin UI`);
+        changed = true;
+      }
+      if (!changed) {
+        return sendError(
+          res,
+          400,
+          "invalid_body",
+          "body must include at least one of: enabled (boolean), model (string)",
+        );
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+    return sendError(res, 405, "method_not_allowed", "use GET or PUT");
+  }
+
   // GET/PUT /admin/api/log-settings — quick toggle for the "model fallback
   // applied" rewrite log. Default is silent (suppressed). env
   // MIMO2CODEX_SILENT_REWRITE, when set, overrides and disables the toggle.
