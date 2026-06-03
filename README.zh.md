@@ -170,6 +170,12 @@ mimo2codex --model ds                # 默认 ds（未匹配的 model 字段走 
 | auth.json | `~/.codex/auth.json` | `%USERPROFILE%\.codex\auth.json` |
 | config.toml | `~/.codex/config.toml` | `%USERPROFILE%\.codex\config.toml` |
 
+### Windows: 只隔离 Codex CLI，不改 Codex 桌面应用
+
+如果你希望 Codex CLI 使用 mimo2codex，但 Codex 桌面应用继续使用原来的 OpenAI 配置，可以使用 `scripts/codex-mimo-isolated.ps1`。它会把 `CODEX_HOME` 指向 `%USERPROFILE%\.codex-mimo`，自动准备隔离的 `auth.json/config.toml`，在需要时启动本地代理，然后运行 Codex CLI。
+
+详见 [doc/codex-cli-isolated-windows.zh.md](doc/codex-cli-isolated-windows.zh.md)。
+
 ### 4. 跑 Codex
 
 ```bash
