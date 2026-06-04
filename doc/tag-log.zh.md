@@ -17,7 +17,13 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 ---
 
-## v0.5.22 (upcoming)
+## v0.5.23 (upcoming)
+
+- **[new]** **Windows：隔离的 Codex CLI 启动器**（PR #64，感谢 @Kaiyuan GONG）：新增脚本 `scripts/codex-mimo-isolated.ps1`，让你用 **Codex CLI** 经 mimo2codex 接 MiMo，又**不动 Codex 桌面端常用的 `~/.codex`**。它用独立的 `CODEX_HOME=%USERPROFILE%\.codex-mimo`，首次运行时在那里写入最小的 `auth.json` + `config.toml`，若 `:8788` 没在监听就自动拉起代理，打印本地 API/admin 地址，然后把其余参数原样转发给 `codex`。脚本不硬编码 API key —— 用 `mimo2codex init` 配置。完整说明见 `doc/codex-cli-isolated-windows.zh.md`。
+
+---
+
+## v0.5.22
 
 - **[new]** **多模态 Fallback —— 请求带图片时自动切换到 vision 模型**（PR #58，感谢 @Grub）：当请求包含图片但当前模型看不了图（如 `mimo-v2.5-pro`）时，代理会把 upstream model 改写成支持 vision 的模型（默认 `mimo-v2.5`），避免图片被静默丢弃——Responses 和 Chat 两条路径都生效。**已收敛为 MiMo 专属、不影响其他模型**：vision 能力是 MiMo provider 的特性（`provider.supportsVision`），只有 MiMo 会触发 fallback，DeepSeek / generic 等请求完全不受影响。即便在 MiMo 下，若目标 vision 模型解析不出来也会跳过、保持原模型。开关和目标模型在 admin UI → Codex 接入页的「多模态 fallback」卡片；**默认关闭**——混用 vision / 非 vision 模型时再开。
 

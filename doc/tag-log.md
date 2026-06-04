@@ -17,7 +17,13 @@ Release history of mimo2codex, newest first.
 
 ---
 
-## v0.5.22 (upcoming)
+## v0.5.23 (upcoming)
+
+- **[new]** **Windows: isolated Codex CLI launcher** (PR #64, thanks @Kaiyuan GONG): a new `scripts/codex-mimo-isolated.ps1` lets you run **Codex CLI** against MiMo via mimo2codex **without touching the `~/.codex` used by Codex Desktop**. It uses a separate `CODEX_HOME=%USERPROFILE%\.codex-mimo`, writes a minimal `auth.json` + `config.toml` there on first run, auto-starts the proxy if `:8788` isn't already listening, prints the local API/admin URLs, then forwards all remaining args to `codex`. API keys are not hardcoded — configure them via `mimo2codex init`. See `doc/codex-cli-isolated-windows.zh.md` for the walkthrough.
+
+---
+
+## v0.5.22
 
 - **[new]** **Multimodal fallback — auto-switch to a vision model when a request carries images** (PR #58, thanks @Grub): when a request contains images but the active model can't see them (e.g. `mimo-v2.5-pro`), the proxy rewrites the upstream model to a vision-capable one (default `mimo-v2.5`) so the image is processed instead of silently dropped — applied on both the Responses and Chat paths. **Scoped to MiMo — other providers are never affected**: vision capability is a MiMo provider feature (`provider.supportsVision`), so only MiMo triggers the fallback; DeepSeek / generic requests are left untouched. Even on MiMo, the switch is skipped when the fallback model can't be resolved. Toggle + target model live in the admin UI → Codex Integration → "Multimodal fallback" card; **disabled by default** — enable it when your workflow mixes vision and non-vision models.
 

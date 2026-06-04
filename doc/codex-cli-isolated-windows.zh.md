@@ -1,5 +1,10 @@
 # Windows：只让 Codex CLI 使用 mimo2codex，不改 Codex 桌面应用
 
+<p>
+  <a href="./codex-cli-isolated-windows.md">English</a> ·
+  <a href="./codex-cli-isolated-windows.zh.md"><strong>简体中文</strong></a>
+</p>
+
 这个文档介绍一种 Windows-only 的隔离启动方式：通过 `scripts/codex-mimo-isolated.ps1` 启动 mimo2codex 代理，并让当前 Codex CLI 会话使用独立的 `CODEX_HOME`。
 
 ## 适用场景

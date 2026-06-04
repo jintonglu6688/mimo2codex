@@ -14,7 +14,7 @@
 // so the modal stays scannable. We keep ONLY the latest version's entry.
 
 import type { ReactNode } from "react";
-import { PictureOutlined } from "@ant-design/icons";
+import { WindowsOutlined } from "@ant-design/icons";
 
 export interface BilingualText {
   en: string;
@@ -49,29 +49,29 @@ export interface ReleaseNote {
 // doc/tag-log.{md,zh.md} for users who want the full history.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
-    version: "0.5.22",
-    date: "2026-06-02",
+    version: "0.5.23",
+    date: "2026-06-03",
     title: {
-      en: "Multimodal fallback",
-      zh: "多模态 fallback",
+      en: "Windows: isolated Codex CLI launcher",
+      zh: "Windows：隔离的 Codex CLI 启动器",
     },
     summary: {
-      en: "Requests carrying images auto-route to a vision model so they aren't silently dropped (MiMo only).",
-      zh: "带图片的请求自动切到 vision 模型，避免被静默丢弃（仅 MiMo）。",
+      en: "Run Codex CLI against MiMo in an isolated profile, without touching the ~/.codex used by Codex Desktop.",
+      zh: "用隔离配置跑 Codex CLI 接 MiMo，不动 Codex 桌面端的 ~/.codex。",
     },
     highlights: [
       {
         kind: "new",
-        icon: <PictureOutlined />,
+        icon: <WindowsOutlined />,
         title: {
-          en: "Multimodal fallback for non-vision models",
-          zh: "非 vision 模型的多模态 fallback",
+          en: "Windows: isolated Codex CLI launcher",
+          zh: "Windows：隔离的 Codex CLI 启动器",
         },
         description: {
-          en: "When a request carries images but your model can't see them (e.g. mimo-v2.5-pro), it auto-switches to a vision model (default mimo-v2.5) so the image isn't dropped. Off by default and MiMo-only — other providers are never affected.",
-          zh: "当请求带图片但当前模型看不了图（如 mimo-v2.5-pro）时，自动切到 vision 模型（默认 mimo-v2.5），图片不再被丢弃。默认关闭；仅对 MiMo 生效，不影响其他 provider/模型。",
+          en: "Run Codex CLI against MiMo without touching the ~/.codex used by Codex Desktop — a PowerShell script uses a separate CODEX_HOME and auto-starts the proxy.",
+          zh: "用 Codex CLI 经 mimo2codex 接 MiMo，又不动 Codex 桌面端的 ~/.codex——PowerShell 脚本用独立 CODEX_HOME 并自动拉起代理。",
         },
-        location: { en: "Codex Integration → Multimodal fallback", zh: "Codex 接入页 → 多模态 fallback" },
+        location: { en: "scripts/codex-mimo-isolated.ps1", zh: "scripts/codex-mimo-isolated.ps1" },
       },
     ],
   },

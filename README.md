@@ -171,6 +171,12 @@ Copy the printed snippets to:
 | auth.json | `~/.codex/auth.json` | `%USERPROFILE%\.codex\auth.json` |
 | config.toml | `~/.codex/config.toml` | `%USERPROFILE%\.codex\config.toml` |
 
+### Windows: isolate Codex CLI only, leave Codex Desktop untouched
+
+If you want Codex CLI to use mimo2codex while Codex Desktop keeps its existing OpenAI config, use `scripts/codex-mimo-isolated.ps1`. It points `CODEX_HOME` at `%USERPROFILE%\.codex-mimo`, auto-prepares an isolated `auth.json` / `config.toml`, starts the local proxy when needed, then runs Codex CLI.
+
+See [doc/codex-cli-isolated-windows.md](doc/codex-cli-isolated-windows.md) for the full guide.
+
 ### 4. Run Codex
 
 ```bash
