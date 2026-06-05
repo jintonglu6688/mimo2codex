@@ -11,6 +11,42 @@ import {
 import path from "node:path";
 import { assertInsideCodexDir, authJsonPath, codexDir } from "./paths.js";
 
+// Dedicated subfolder for auth.json / config.toml backups, so the dozens of
+// `*.bak.*` snapshots don't clutter the top-level `~/.codex/` listing the
+// Codex app and CLI also read. Still inside codexDir → assertInsideCodexDir
+// stays valid and the restore path can write back without relaxing the guard.
+export function backupsDir(): string {
+  return path.join(codexDir(), ".m2c-backups");
+}
+
+// The two live files we ever back up. Used to recognize legacy sibling
+// backups during the one-time migration.
+const BACKED_UP_BASENAMES = ["auth.json", "config.toml"];
+
+// Move any legacy sibling backups (`~/.codex/<file>.bak.*`, the pre-v0.6.0
+// layout) into `.m2c-backups/`. Idempotent and cheap — once migrated there's
+// nothing left to match, so it degrades to a single readdir. Called lazily
+// from listBackups so it runs the first time anything reads backup state.
+export function migrateLegacyBackups(): void {
+  const dir = codexDir();
+  if (!existsSync(dir)) return;
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!BACKED_UP_BASENAMES.some((b) => name.startsWith(`${b}.bak.`))) continue;
+    try {
+      mkdirSync(backupsDir(), { recursive: true });
+      renameSync(path.join(dir, name), path.join(backupsDir(), name));
+    } catch {
+      // best-effort; a locked file shouldn't block the read that triggered us
+    }
+  }
+}
+
 // Write `contents` to `filePath` atomically: write to a sibling temp file
 // then renameSync over the target. renameSync is atomic on POSIX and on
 // Windows for files on the same volume — which is always the case here
@@ -52,7 +88,11 @@ export function backupFile(
   assertInsideCodexDir(filePath);
   if (!existsSync(filePath)) return null;
   const tail = opts?.preserve ? ".preserve" : "";
-  const backup = `${filePath}.bak.${ts}.${process.pid}${tail}`;
+  mkdirSync(backupsDir(), { recursive: true });
+  const backup = path.join(
+    backupsDir(),
+    `${path.basename(filePath)}.bak.${ts}.${process.pid}${tail}`
+  );
   copyFileSync(filePath, backup);
   return backup;
 }
@@ -71,7 +111,8 @@ export interface BackupEntry {
 // "most recent".
 export function listBackups(filePath: string): BackupEntry[] {
   assertInsideCodexDir(filePath);
-  const dir = path.dirname(filePath);
+  migrateLegacyBackups();
+  const dir = backupsDir();
   if (!existsSync(dir)) return [];
   const base = path.basename(filePath);
   const prefix = `${base}.bak.`;

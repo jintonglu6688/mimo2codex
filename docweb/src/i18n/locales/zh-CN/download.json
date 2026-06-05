@@ -1,0 +1,61 @@
+{
+  "title": "mimo2codex 桌面端",
+  "tagline": "后台运行，不依赖终端。托盘菜单一键打开 Admin UI、开机自启。",
+  "primaryCta": "下载 {{label}} 版（{{size}}）",
+  "otherPlatforms": "其他平台",
+  "download": "下载",
+  "switchArch": {
+    "detected": "识别为 {{label}}",
+    "switch": "切换到 {{label}}"
+  },
+  "copied": "已复制到剪贴板",
+  "copyFailed": "无法访问剪贴板",
+  "fetchFailed": {
+    "title": "无法获取发布信息",
+    "detail": "GitHub API 错误：{{error}}",
+    "fallback": "前往 GitHub Releases 手动下载"
+  },
+  "notReleasedYet": {
+    "title": "桌面端还没发布",
+    "detail": "桌面安装包尚未发布。先用命令行版试试："
+  },
+  "noMatchPlatform": {
+    "title": "自动识别不到你的系统",
+    "detail": "在下方「其他平台」里选你需要的版本。"
+  },
+  "why": {
+    "title": "为什么需要桌面端？",
+    "bg": {
+      "title": "后台运行",
+      "detail": "不用一直开着终端窗口，关掉是进托盘不是退出。"
+    },
+    "tray": {
+      "title": "一键打开管理界面",
+      "detail": "托盘菜单里直接打开 Admin UI、查看日志、重启 sidecar。"
+    },
+    "autostart": {
+      "title": "开机自启（可选）",
+      "detail": "勾上「Start on system boot」，开机就绪、不用再启动。"
+    }
+  },
+  "macSteps": {
+    "title": "macOS 安装与首次启动（4 步）",
+    "intro": "桌面端目前未签名，macOS Gatekeeper 默认会拦下载来的 .zip 里的 App，提示「已损坏，无法打开」。按下面这 4 步走就行：",
+    "s1": "在「下载」文件夹里双击刚下载的 .zip——Finder 会自动解压出 mimo2codex.app。",
+    "s2": "把 mimo2codex.app 拖到「应用程序」（/Applications）文件夹。",
+    "s3": "打开终端（Terminal），把下面这行粘进去回车跑一次：",
+    "s3Hint": "（这一步清除浏览器下载留下的 quarantine 标记，不跑直接双击就会报「已损坏」。命令没任何输出是正常的。）",
+    "s4": "回到「应用程序」双击 mimo2codex.app 启动。之后从顶栏的 m2 图标进设置面板。",
+    "inlineWarn": "macOS 必看：桌面包未签名，下载后双击直接打开会提示「已损坏」。需要按下方步骤跑一条 xattr 命令解隔离。",
+    "inlineCmd": "xattr -cr /Applications/mimo2codex.app",
+    "inlineSeeBelow": "查看完整 4 步 ↓"
+  },
+  "security": {
+    "title": "首次打开会有系统安全警告",
+    "mac": "macOS：如果上面 4 步没看到、直接双击 App 报「已损坏，无法打开」，跑一次 xattr -cr /Applications/mimo2codex.app 就好。（「右键 → 打开」在新版 macOS 不一定还能用，xattr 命令永远管用。）",
+    "win": "Windows：SmartScreen 警告 → 「更多信息」→「仍要运行」。",
+    "sha": "这些警告是正常的——桌面包暂时无签名。下载后请校验 SHA256 与本页一致以确认完整性。",
+    "uninstall": "卸载方法：macOS——把 /Applications 里的 mimo2codex.app 拖到废纸篓；要彻底删配置：`rm -rf ~/Library/Application\\ Support/mimo2codex-desktop`。Windows——设置 → 应用 → mimo2codex → 卸载。"
+  },
+  "cliHint": "想用命令行版？npm install -g mimo2codex"
+}

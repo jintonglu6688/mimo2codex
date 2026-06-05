@@ -10,6 +10,7 @@ import zhProviders from "./locales/zh-CN/providers.json";
 import zhSetup from "./locales/zh-CN/setup.json";
 import zhModels from "./locales/zh-CN/models.json";
 import zhCodexEnable from "./locales/zh-CN/codexEnable.json";
+import zhSessions from "./locales/zh-CN/sessions.json";
 import zhKeyBanner from "./locales/zh-CN/keyBanner.json";
 import zhUpdate from "./locales/zh-CN/update.json";
 import zhTour from "./locales/zh-CN/tour.json";
@@ -25,6 +26,7 @@ import enProviders from "./locales/en-US/providers.json";
 import enSetup from "./locales/en-US/setup.json";
 import enModels from "./locales/en-US/models.json";
 import enCodexEnable from "./locales/en-US/codexEnable.json";
+import enSessions from "./locales/en-US/sessions.json";
 import enKeyBanner from "./locales/en-US/keyBanner.json";
 import enUpdate from "./locales/en-US/update.json";
 import enTour from "./locales/en-US/tour.json";
@@ -48,6 +50,7 @@ void i18n.use(initReactI18next).init({
       setup: zhSetup,
       models: zhModels,
       codexEnable: zhCodexEnable,
+      sessions: zhSessions,
       keyBanner: zhKeyBanner,
       update: zhUpdate,
       tour: zhTour,
@@ -65,6 +68,7 @@ void i18n.use(initReactI18next).init({
       setup: enSetup,
       models: enModels,
       codexEnable: enCodexEnable,
+      sessions: enSessions,
       keyBanner: enKeyBanner,
       update: enUpdate,
       tour: enTour,
@@ -86,6 +90,7 @@ void i18n.use(initReactI18next).init({
     "setup",
     "models",
     "codexEnable",
+    "sessions",
     "keyBanner",
     "update",
     "tour",

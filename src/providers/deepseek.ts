@@ -70,6 +70,7 @@ export const deepseek: Provider = {
       imageDropDir: ctx.dataDir,
       disableThinking: ctx.disableThinking,
       forceHighEffort: ctx.forceHighEffort,
+      upstreamModel: ctx.upstreamModel,
     });
     // `enable_thinking` is a MiMo-only legacy field reqToChat sometimes emits;
     // DeepSeek doesn't recognize it. The structured `thinking: {type: ...}`

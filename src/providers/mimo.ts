@@ -1,5 +1,5 @@
 import type { ChatRequest, ResponsesRequest } from "../translate/types.js";
-import { reqToChat } from "../translate/reqToChat.js";
+import { modelSupportsImages, reqToChat } from "../translate/reqToChat.js";
 import type { PreprocessCtx, Provider, ProviderEnhancedError, ProviderModel } from "./types.js";
 
 // Marker MiMo emits in 400 responses when web_search is forwarded but the
@@ -150,6 +150,13 @@ export const mimo: Provider = {
     return BUILTIN_MODELS.find((m) => m.id === clientModel) ?? null;
   },
 
+  // Vision capability lives here (MiMo-specific): only `mimo-v2.5` and
+  // `*-omni` accept images. Exposing it as a provider method is what scopes
+  // the multimodal fallback to MiMo — other providers don't implement it.
+  supportsVision(model) {
+    return modelSupportsImages(model);
+  },
+
   preprocessResponses(req: ResponsesRequest, ctx: PreprocessCtx): ChatRequest {
     // mimo2codex's two default-on behaviors that compensate for MiMo's weaker
     // agentic-coding training compared to GPT-5 / Claude:
@@ -164,6 +171,7 @@ export const mimo: Provider = {
       imageDropDir: ctx.dataDir,
       disableThinking: ctx.disableThinking,
       forceHighEffort: ctx.forceHighEffort,
+      upstreamModel: ctx.upstreamModel,
     });
     return normalizeMimoBody(chat, req.model);
   },

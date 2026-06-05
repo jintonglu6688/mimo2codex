@@ -72,7 +72,8 @@ export function WhatsNewModal() {
       open={open}
       onCancel={() => close(false)}
       title={<span style={{ fontSize: 18 }}>🎉 {t("title")}</span>}
-      width={720}
+      width={980}
+      style={{ maxWidth: "94vw" }}
       footer={
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <Button type="text" onClick={() => close(true)}>
@@ -154,17 +155,71 @@ function ReleaseSection({
         </Typography.Paragraph>
       )}
 
-      <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 14 }}>
-        {note.highlights.map((h, i) => (
-          <HighlightRow
-            key={i}
-            highlight={h}
-            lang={lang}
-            navigate={navigate}
-            openHref={openHref}
-          />
-        ))}
-      </div>
+      <GroupedHighlights
+        highlights={note.highlights}
+        lang={lang}
+        navigate={navigate}
+        openHref={openHref}
+      />
+    </div>
+  );
+}
+
+// Group highlights by kind (New → Improved → Fixed → Docs) so the modal reads
+// as tidy sections instead of an interleaved list. Each section gets one
+// header tag; the per-row tag is dropped to avoid repeating it on every row.
+const KIND_ORDER: Array<NonNullable<ReleaseHighlight["kind"]>> = [
+  "new",
+  "improved",
+  "fixed",
+  "doc",
+];
+
+function GroupedHighlights({
+  highlights,
+  lang,
+  navigate,
+  openHref,
+}: {
+  highlights: ReleaseHighlight[];
+  lang: string;
+  navigate: (path: string) => void;
+  openHref: (href: string) => void;
+}) {
+  const { t } = useTranslation("whatsNew");
+  const groups = KIND_ORDER.map((kind) => ({
+    kind,
+    items: highlights.filter((h) => (h.kind ?? "new") === kind),
+  })).filter((g) => g.items.length > 0);
+
+  return (
+    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 18 }}>
+      {groups.map((g) => (
+        <div key={g.kind}>
+          <Tag color={KIND_COLORS[g.kind]} style={{ marginInlineEnd: 0, marginBottom: 8 }}>
+            {t(`kind.${g.kind}`)} · {g.items.length}
+          </Tag>
+          {/* Responsive grid: 2 columns on wide screens, 1 when narrow. */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+              gap: 10,
+              alignItems: "stretch",
+            }}
+          >
+            {g.items.map((h, i) => (
+              <HighlightRow
+                key={i}
+                highlight={h}
+                lang={lang}
+                navigate={navigate}
+                openHref={openHref}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -181,7 +236,6 @@ function HighlightRow({
   openHref: (href: string) => void;
 }) {
   const { t } = useTranslation("whatsNew");
-  const kind = highlight.kind ?? "new";
   return (
     <div
       style={{
@@ -189,6 +243,7 @@ function HighlightRow({
         gridTemplateColumns: "32px minmax(0, 1fr)",
         gap: 12,
         padding: "10px 14px",
+        height: "100%",
         border: "1px solid var(--ant-color-border-secondary, #f0f0f0)",
         borderRadius: 10,
         background: "var(--ant-color-fill-quaternary, rgba(0,0,0,0.02))",
@@ -199,9 +254,6 @@ function HighlightRow({
       </div>
       <div style={{ minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <Tag color={KIND_COLORS[kind]} style={{ marginInlineEnd: 0 }}>
-            {t(`kind.${kind}`)}
-          </Tag>
           <strong style={{ fontSize: 14 }}>{pick(highlight.title, lang)}</strong>
         </div>
         <div style={{ fontSize: 13, marginTop: 4, lineHeight: 1.65 }}>

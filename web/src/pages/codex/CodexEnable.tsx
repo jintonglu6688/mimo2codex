@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Collapse,
+  Input,
   Modal,
   Space,
   Switch,
@@ -15,7 +16,6 @@ import { ThunderboltOutlined } from "@ant-design/icons";
 import {
   api,
   type CodexBackupPair,
-  type CodexDirInfo,
   type CodexState,
   type CodexTarget,
   type CodexTargetsResponse,
@@ -23,7 +23,7 @@ import {
 import { SetupSnippets } from "../../components/SetupSnippets";
 import { PageTour } from "../../components/PageTour";
 import type { Busy, ProbeState } from "./types";
-import { CurrentStateCard } from "./CurrentStateCard";
+import { promptRestartCodex } from "./restartCodex";
 import { ProviderBlock } from "./ProviderBlock";
 import { RuntimeOverrideCard } from "./RuntimeOverrideCard";
 import { BackupCard } from "./BackupCard";
@@ -37,7 +37,6 @@ export function CodexEnable() {
   const { authMode } = useAuth();
   const isServerMode = authMode === "on";
   const [modal, modalCtx] = Modal.useModal();
-  const stateCardRef = useRef<HTMLDivElement>(null);
   const prereqRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
   const testAllRef = useRef<HTMLButtonElement>(null);
@@ -49,7 +48,6 @@ export function CodexEnable() {
   const [success, setSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [probes, setProbes] = useState<Record<string, ProbeState>>({});
-  const [codexDirInfo, setCodexDirInfo] = useState<CodexDirInfo | null>(null);
   const [testingAll, setTestingAll] = useState<boolean>(false);
   // thinking.disabled setting：admin UI 控制的全局"关思考"开关。null = 加载中。
   // CLI flag (--disable-thinking / env) 优先于该设置 —— 当 cliOverridden 为 true 时
@@ -65,6 +63,10 @@ export function CodexEnable() {
   const [forceHighEffort, setForceHighEffort] = useState<boolean | null>(null);
   const [forceHighEffortSaving, setForceHighEffortSaving] =
     useState<boolean>(false);
+  // visionFallback：多模态 fallback 开关 + 目标模型。null = 加载中。
+  const [visionFallbackEnabled, setVisionFallbackEnabled] = useState<boolean | null>(null);
+  const [visionFallbackModel, setVisionFallbackModel] = useState<string>("mimo-v2.5");
+  const [visionFallbackSaving, setVisionFallbackSaving] = useState<boolean>(false);
 
   async function doProbe(target: CodexTarget) {
     const key = `${target.providerId}::${target.modelId}`;
@@ -96,19 +98,24 @@ export function CodexEnable() {
   async function load() {
     try {
       setError(null);
-      const [s, ts, dirInfo, think] = await Promise.all([
+      const [s, ts, think, vf] = await Promise.all([
         api.codexState(),
         api.codexTargets(),
-        api.codexDir(),
         api.thinkingState().catch(() => null), // 老后端没此端点时降级
+        api.visionFallback().catch(() => null), // 老后端没此端点时降级
       ]);
       setState(s);
       setTargetsResp(ts);
-      setCodexDirInfo(dirInfo);
       if (think) {
         setThinkingDisabled(think.effective);
         setThinkingCliOverridden(think.cliOverride !== null);
         setForceHighEffort(think.forceHighEffort);
+      }
+      if (vf) {
+        setVisionFallbackEnabled(vf.enabled);
+        setVisionFallbackModel(vf.model);
+      } else {
+        setVisionFallbackEnabled(false);
       }
     } catch (err) {
       setError((err as Error).message);
@@ -136,6 +143,32 @@ export function CodexEnable() {
       setError((err as Error).message);
     } finally {
       setForceHighEffortSaving(false);
+    }
+  }
+
+  async function doToggleVisionFallback(enabled: boolean): Promise<void> {
+    setVisionFallbackSaving(true);
+    try {
+      await api.setVisionFallback({ enabled });
+      setVisionFallbackEnabled(enabled);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setVisionFallbackSaving(false);
+    }
+  }
+
+  async function doSetVisionFallbackModel(model: string): Promise<void> {
+    const trimmed = model.trim();
+    if (!trimmed || trimmed === visionFallbackModel) return;
+    setVisionFallbackSaving(true);
+    try {
+      await api.setVisionFallback({ model: trimmed });
+      setVisionFallbackModel(trimmed);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setVisionFallbackSaving(false);
     }
   }
 
@@ -170,6 +203,10 @@ export function CodexEnable() {
         })
       );
       await load();
+      // Config only takes effect on Codex reload — offer to do it right now.
+      promptRestartCodex(modal, t, (m) =>
+        m.type === "success" ? setSuccess(m.text) : setError(m.text)
+      );
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -328,26 +365,6 @@ export function CodexEnable() {
       <Typography.Title level={2} style={{ marginTop: 0 }}>
         {t("title")}
       </Typography.Title>
-      <Typography.Paragraph type="secondary">{t("intro")}</Typography.Paragraph>
-
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        description={
-          <Space direction="vertical" size={6}>
-            <Trans i18nKey="modesInfo.applyFile" ns="codexEnable">
-              <strong>placeholder</strong>placeholder
-              <strong>placeholder</strong>placeholder
-            </Trans>
-            <Trans i18nKey="modesInfo.runtimeOverride" ns="codexEnable">
-              <strong>placeholder</strong>placeholder
-              <strong>placeholder</strong>placeholder
-            </Trans>
-          </Space>
-        }
-        message={null}
-      />
 
       {error && (
         <Alert
@@ -370,16 +387,6 @@ export function CodexEnable() {
         />
       )}
 
-      {state && (
-        <div ref={stateCardRef}>
-          <CurrentStateCard
-            state={state}
-            dirInfo={codexDirInfo}
-            onReload={() => void load()}
-          />
-        </div>
-      )}
-
       <div ref={prereqRef}>
         <Collapse
           style={{ marginBottom: 16 }}
@@ -394,7 +401,31 @@ export function CodexEnable() {
                   </Typography.Text>
                 </span>
               ),
-              children: <SetupSnippets />,
+              children: (
+                <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                  <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                    {t("intro")}
+                  </Typography.Paragraph>
+                  <Alert
+                    type="info"
+                    showIcon
+                    description={
+                      <Space direction="vertical" size={6}>
+                        <Trans i18nKey="modesInfo.applyFile" ns="codexEnable">
+                          <strong>placeholder</strong>placeholder
+                          <strong>placeholder</strong>placeholder
+                        </Trans>
+                        <Trans i18nKey="modesInfo.runtimeOverride" ns="codexEnable">
+                          <strong>placeholder</strong>placeholder
+                          <strong>placeholder</strong>placeholder
+                        </Trans>
+                      </Space>
+                    }
+                    message={null}
+                  />
+                  <SetupSnippets />
+                </Space>
+              ),
             },
           ]}
         />
@@ -534,6 +565,71 @@ export function CodexEnable() {
                       )}
                     </Card>
                   )}
+                  {visionFallbackEnabled !== null && (
+                    <Card
+                      size="small"
+                      title={t("visionFallback.title")}
+                      style={{ marginBottom: 12 }}
+                    >
+                      <Alert
+                        type="info"
+                        showIcon
+                        message={t("visionFallback.scopeNote")}
+                        style={{ marginBottom: 8 }}
+                      />
+                      <Space wrap>
+                        <Switch
+                          size="small"
+                          checked={!!visionFallbackEnabled}
+                          loading={visionFallbackSaving}
+                          onChange={(enabled) =>
+                            void doToggleVisionFallback(enabled)
+                          }
+                          checkedChildren={t("thinking.switchOn")}
+                          unCheckedChildren={t("thinking.switchOff")}
+                        />
+                        <span>
+                          {visionFallbackEnabled
+                            ? t("visionFallback.statusOn")
+                            : t("visionFallback.statusOff")}
+                        </span>
+                      </Space>
+                      <div style={{ marginTop: 8 }}>
+                        <Typography.Text
+                          type="secondary"
+                          style={{ fontSize: 12 }}
+                        >
+                          {t("visionFallback.modelLabel")}
+                        </Typography.Text>
+                        <Input
+                          size="small"
+                          value={visionFallbackModel}
+                          onChange={(e) =>
+                            setVisionFallbackModel(e.target.value)
+                          }
+                          disabled={!visionFallbackEnabled}
+                          placeholder={t("visionFallback.modelPlaceholder")}
+                          onBlur={(e) =>
+                            void doSetVisionFallbackModel(e.target.value)
+                          }
+                          onPressEnter={() =>
+                            void doSetVisionFallbackModel(visionFallbackModel)
+                          }
+                          style={{ width: 240, marginTop: 4, marginLeft: 4 }}
+                        />
+                      </div>
+                      <Typography.Paragraph
+                        type="secondary"
+                        style={{
+                          fontSize: 12,
+                          marginTop: 8,
+                          marginBottom: 0,
+                        }}
+                      >
+                        {t("visionFallback.hint")}
+                      </Typography.Paragraph>
+                    </Card>
+                  )}
                   {state && (
                     <RuntimeOverrideCard
                       state={state}
@@ -575,11 +671,6 @@ export function CodexEnable() {
       <PageTour
         pageKey="codex"
         steps={[
-          {
-            target: stateCardRef,
-            title: tTour("codex.s1.title"),
-            description: tTour("codex.s1.desc"),
-          },
           {
             target: prereqRef,
             title: tTour("codex.s2.title"),

@@ -1,9 +1,19 @@
 {
   "title": "Codex 接入",
   "intro": "在这里一键切换 Codex 实际调用的模型，替代 ccswitch。提供两种机制：",
+  "restart": {
+    "restart": "立即重启 Codex",
+    "restartLater": "暂不",
+    "restartConfirmTitle": "重启 Codex 让配置生效？",
+    "restartConfirmBody": "配置已写入 ~/.codex——需要重启 Codex 才能生效。现在重启吗？这会强制关闭 Codex 桌面端并重新启动，正在进行的对话会被中断。",
+    "restarted": "Codex 已重启（结束 {{killed}} 个进程），正在重新启动。",
+    "launched": "Codex 原本未运行——已为你启动。",
+    "restartNoop": "未找到可重启的 Codex 桌面端，请手动启动。",
+    "restartUnsupported": "当前平台不支持一键重启，请手动重启 Codex。"
+  },
   "prereq": {
-    "title": "先决条件 / 手动配置片段",
-    "subtitle": "auth.json / config.toml / 环境变量 / cc-switch — 点击展开查看"
+    "title": "工作原理 + 先决条件 / 手动配置片段",
+    "subtitle": "两种机制 / auth.json / config.toml / 环境变量 / cc-switch — 点击展开查看"
   },
   "tabs": {
     "targets": "可启用模型",
@@ -51,6 +61,15 @@
     "forceHighSideEffect": "⚠️ 已开启强制高强度思考：即便 Codex 没要求思考，mimo2codex 也会给所有请求注入 reasoning_effort=\"high\"。副作用：① 简单请求（hi、单文件读取等）也会走思考流程，多花 token、更慢；② 部分模型上 \"high\" 等同 \"max\"，账单可能显著上升。仅在确实需要看到思考过程时再开。",
     "hint": "「开/关思考」：关闭后所有 provider 都不思考（mimo / deepseek 发 thinking:{type:\"disabled\"}，sensenova / 其他 generic 发 reasoning_effort:\"none\"）。开启时各 provider 走自己的默认行为（多数客户端对非 GPT-5 模型默认不带 reasoning effort，上游可能对简单任务跳过思考）。「强制高强度思考」：仅在「开/关思考」是开时可用，Codex 没明确传 effort 时由 mimo2codex 兜底注入 reasoning_effort=\"high\"；Codex 显式传过的值会被尊重，不被覆盖。修改后立即对新请求生效（无需重启）。",
     "cliOverride": "「开/关思考」当前由 CLI flag (--disable-thinking) 或环境变量 (MIMO2CODEX_DISABLE_THINKING) 控制，开关被锁定。如需用 UI 控制，启动时不要带这些参数。"
+  },
+  "visionFallback": {
+    "title": "多模态 Fallback",
+    "scopeNote": "目前仅适配 MiMo 模型，其他 provider/模型暂不适配。",
+    "statusOn": "已启用：图片请求自动切换 vision 模型",
+    "statusOff": "未启用",
+    "hint": "开启后，当请求包含图片但当前模型不支持 vision（如 mimo-v2.5-pro），自动切换到指定的多模态模型（默认 mimo-v2.5），避免图片被静默丢弃。",
+    "modelLabel": "Fallback 模型",
+    "modelPlaceholder": "例如 mimo-v2.5"
   },
   "targets": {
     "title": "可启用组合",

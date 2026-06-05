@@ -21,6 +21,7 @@ import type { UserRow } from "./db/users.js";
 import { insertLog, type ChatLogEntry } from "./db/logs.js";
 import { getActiveOverride, type ActiveOverride } from "./db/overrides.js";
 import { getSetting } from "./db/settings.js";
+import { applyLogBodyMode, resolveLogBodyMode, runLogMaintenance } from "./logging/settings.js";
 import { redactSensitive } from "./util/redact.js";
 import { isMaintenance, getMaintenanceMessage } from "./util/maintenance.js";
 
@@ -59,6 +60,20 @@ function resolveForceHighEffort(cfg: Config): boolean {
     return getSetting("thinking.forceHighEffort") === "1";
   } catch {
     return false;
+  }
+}
+
+// silentRewrite 解析：env (cfg.silentRewriteFromCli) > admin settings DB > true。
+// 注意默认是 **静默**（true）—— admin UI 顶部「更多」里有快速开关。每请求调一次，
+// admin 改了立即生效，无需重启。
+function resolveSilentRewrite(cfg: Config): boolean {
+  if (cfg.silentRewriteFromCli !== undefined) return cfg.silentRewriteFromCli;
+  if (!cfg.adminEnabled) return true;
+  try {
+    const s = getSetting("logging.silentRewrite");
+    return s === null ? true : s !== "0";
+  } catch {
+    return true;
   }
 }
 
@@ -136,7 +151,16 @@ function recordLog(cfg: Config, entry: Omit<ChatLogEntry, "ts">): void {
   const ts = Date.now();
   setImmediate(() => {
     try {
-      insertLog({ ...entry, ts });
+      const bodies = applyLogBodyMode(resolveLogBodyMode(cfg), entry.status_code, {
+        requestBody: entry.request_body,
+        responseBody: entry.response_body,
+      });
+      insertLog({
+        ...entry,
+        ts,
+        request_body: bodies.requestBody,
+        response_body: bodies.responseBody,
+      });
     } catch (err) {
       log.warn("chat_logs insert failed", { error: (err as Error).message });
     }
@@ -154,7 +178,17 @@ function userLogger(user: UserRow | null): typeof recordLog {
     const ts = Date.now();
     setImmediate(() => {
       try {
-        insertLog({ ...entry, ts, user_id: userId });
+        const bodies = applyLogBodyMode(resolveLogBodyMode(cfg), entry.status_code, {
+          requestBody: entry.request_body,
+          responseBody: entry.response_body,
+        });
+        insertLog({
+          ...entry,
+          ts,
+          user_id: userId,
+          request_body: bodies.requestBody,
+          response_body: bodies.responseBody,
+        });
       } catch (err) {
         log.warn("chat_logs insert failed", { error: (err as Error).message });
       }
@@ -352,6 +386,74 @@ function rewriteWarning(notice: { from: string; to: string; reason: string }): {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Vision (multimodal) fallback
+// ---------------------------------------------------------------------------
+
+// 读取 DB 设置，返回 vision fallback 模型名；未启用或 admin 关闭时返回 null。
+function resolveVisionFallback(cfg: Config): string | null {
+  if (!cfg.adminEnabled) return null;
+  try {
+    if (getSetting("codex.visionFallbackEnabled") !== "1") return null;
+    const model = getSetting("codex.visionFallbackModel");
+    return model || "mimo-v2.5";
+  } catch {
+    return null;
+  }
+}
+
+// 检测 Responses API 请求是否包含图片（input_image 类型）。
+export function requestContainsImages(payload: ResponsesRequest): boolean {
+  if (!Array.isArray(payload.input)) return false;
+  for (const item of payload.input) {
+    if (item.type === "message" && Array.isArray(item.content)) {
+      for (const part of item.content) {
+        if (part.type === "input_image") return true;
+      }
+    }
+    // function_call_output 也可能包含图片（tool 返回的图片）
+    if (item.type === "function_call_output" && Array.isArray(item.output)) {
+      for (const part of item.output) {
+        if (part.type === "input_image") return true;
+      }
+    }
+  }
+  return false;
+}
+
+// 检测 Chat Completions API 请求是否包含图片（image_url 类型）。
+export function chatRequestContainsImages(payload: ChatRequest): boolean {
+  if (!Array.isArray(payload.messages)) return false;
+  for (const msg of payload.messages) {
+    if (Array.isArray(msg.content)) {
+      for (const part of msg.content) {
+        if (part.type === "image_url") return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * 从 Codex 请求的 tools 数组中提取 namespace 映射：toolName → namespaceName。
+ * Codex Desktop 期望响应中的 function_call 带 namespace 字段才能路由到正确 handler。
+ */
+function buildNamespaceMap(payload: ResponsesRequest): Map<string, string> | undefined {
+  if (!payload.tools || payload.tools.length === 0) return undefined;
+  const map = new Map<string, string>();
+  for (const t of payload.tools) {
+    if (t.type === "namespace") {
+      const ns = t as unknown as { name?: string; tools?: Array<{ name?: string }> };
+      if (ns.name && Array.isArray(ns.tools)) {
+        for (const inner of ns.tools) {
+          if (inner.name) map.set(inner.name, ns.name);
+        }
+      }
+    }
+  }
+  return map.size > 0 ? map : undefined;
+}
+
 async function handleResponses(
   cfg: Config,
   req: IncomingMessage,
@@ -382,7 +484,7 @@ async function handleResponses(
   log.debug("incoming POST /v1/responses", {
     model: payload.model,
     stream: !!payload.stream,
-    hasInput: Array.isArray(payload.input) ? payload.input.length : "n/a",
+    hasInput: Array.isArray(payload.input) ? payload.input.length : (typeof payload.input === "string" ? payload.input.length : "n/a"),
     hasInstructions: typeof payload.instructions === "string" ? payload.instructions.length : 0,
     keys: Object.keys(payload),
   });
@@ -393,9 +495,7 @@ async function handleResponses(
   // translation would forward `messages: []` to the upstream, which 400s.
   // Detect the probe shape (no input, no instructions) and answer with a
   // synthetic 200 without burning an upstream call.
-  const hasInput = Array.isArray(payload.input) && payload.input.length > 0;
-  const hasInstructions = typeof payload.instructions === "string" && payload.instructions.length > 0;
-  if (!hasInput && !hasInstructions) {
+  if (isResponsesProbe(payload)) {
     log.debug("matched probe shape — returning synthetic 200 without upstream call");
     return respondToResponsesProbe(payload, res, !!payload.stream);
   }
@@ -405,6 +505,40 @@ async function handleResponses(
     cfg,
     readActiveOverrideSafely(cfg)
   );
+  // 多模态 fallback：仅对声明了 vision 能力的 provider（目前只有 MiMo）生效，
+  // 不影响其他 provider/模型。请求含图片但当前 model 看不了图 → 切到 vision 模型。
+  const visionFallbackModel = resolveVisionFallback(cfg);
+  const supportsVision = selectedRaw.provider.supportsVision?.bind(selectedRaw.provider);
+  if (visionFallbackModel && supportsVision) {
+    const effectiveModel = selectedRaw.upstreamModel;
+    if (!supportsVision(effectiveModel) && requestContainsImages(payload)) {
+      const resolved = selectedRaw.provider.resolveModel(visionFallbackModel);
+      // Guard against cross-provider misrouting: only rewrite when the active
+      // provider actually knows this vision model. Otherwise (e.g. DeepSeek
+      // active + default "mimo-v2.5") we'd hand the provider's key to a model
+      // it can't serve. Skip the fallback and keep the original model instead.
+      if (!resolved) {
+        log.warn("vision fallback skipped: active provider can't resolve fallback model", {
+          provider: selectedRaw.provider.id,
+          from: effectiveModel,
+          fallbackModel: visionFallbackModel,
+        });
+      } else {
+        selectedRaw.rewriteNotice = {
+          from: effectiveModel,
+          to: resolved.id,
+          reason: `multimodal fallback — request contains images but model "${effectiveModel}" does not support vision`,
+        };
+        selectedRaw.upstreamModel = resolved.id;
+        selectedRaw.modelInfo = resolved;
+        log.info("vision fallback applied", {
+          from: effectiveModel,
+          to: resolved.id,
+          provider: selectedRaw.provider.id,
+        });
+      }
+    }
+  }
   const { provider, upstreamModel, modelInfo, rewriteNotice } = selectedRaw;
   // BYOK: if a logged-in user has stored their own upstream API key for this
   // provider, swap it into the runtime. Local-mode / shared-key users keep
@@ -422,11 +556,12 @@ async function handleResponses(
     wireApi: provider.wireApi ?? "chat",
     apiKeySource,
   });
-  if (rewriteNotice) {
+  if (rewriteNotice && !resolveSilentRewrite(cfg)) {
     // INFO, not WARN — this is a graceful fallback, not an error. The request
     // continues normally with the provider's default model. Kept visible (not
     // debug) because silent rewrites can mask capability mismatches (e.g. a
     // vision request silently routed to a non-vision default model).
+    // Set MIMO2CODEX_SILENT_REWRITE=1 to suppress this message.
     log.info("model fallback applied — client sent unknown model id, request continues with provider default", {
       provider: provider.id,
       from: rewriteNotice.from,
@@ -458,17 +593,20 @@ async function handleResponses(
     dataDir: cfg.dataDir,
     disableThinking: resolveDisableThinking(cfg),
     forceHighEffort: resolveForceHighEffort(cfg),
+    upstreamModel,
   });
   chat.model = upstreamModel;
   chat.stream = !!payload.stream;
   const stream = !!payload.stream;
+
+  const namespaceMap = buildNamespaceMap(payload);
 
   const ac = new AbortController();
   req.on("close", () => ac.abort());
 
   const startedAt = Date.now();
   const requestBodySnapshot = bodyForLog(payload);
-  const rewriteLogFields = rewriteNotice
+  const rewriteLogFields = rewriteNotice && !resolveSilentRewrite(cfg)
     ? (() => {
         const w = rewriteWarning(rewriteNotice);
         return { error_code: w.code, error_snippet: w.message };
@@ -507,6 +645,7 @@ async function handleResponses(
         // 仅当 provider 声明开了（generic provider 的 features.minimaxCompat 或
         // features.extractThinkTags），其他 provider 这里是 undefined → 既有行为。
         extractInlineThink: !!provider.responseFlags?.extractInlineThink,
+        namespaceMap,
       });
       sendJson(res, 200, responses);
       recordLog(cfg, {
@@ -622,6 +761,7 @@ async function handleResponses(
         exposeReasoning: cfg.exposeReasoning,
         // minimax-compat: 同 respToResponses 调用点，对 inline-think 上游开启切分。
         extractInlineThink: !!provider.responseFlags?.extractInlineThink,
+        namespaceMap,
       }
     );
   } catch (err) {
@@ -694,7 +834,7 @@ async function handleResponsesPassthrough(
 
   const startedAt = Date.now();
   const requestBodySnapshot = bodyForLog(payload);
-  const rewriteLogFields = rewriteNotice
+  const rewriteLogFields = rewriteNotice && !resolveSilentRewrite(cfg)
     ? (() => {
         const w = rewriteWarning(rewriteNotice);
         return { error_code: w.code, error_snippet: w.message };
@@ -884,6 +1024,29 @@ async function handleResponsesPassthrough(
   }
 }
 
+// Probe-shape detection for POST /v1/responses. cc-switch's "test connection"
+// (and similar health-checks) send `{model, stream}` with no `input` and no
+// `instructions` — forwarding would give the upstream `messages: []` and a
+// 400. So we short-circuit those with a synthetic 200.
+//
+// issue #31: OpenAI's Responses API accepts `input` as either a string or an
+// array of message items. The previous check only matched the array form,
+// causing CodeX Desktop's `{input: "write hello world"}` requests to be
+// misidentified as probes and returned with an empty `output: []` (no
+// upstream call) — looks like "model said nothing" with zero error signal.
+// The string branch was added by 85339098-afk (PR #31).
+//
+// Exported so a focused unit test can lock the rule without spinning up the
+// full HTTP server + mock upstream.
+export function isResponsesProbe(payload: ResponsesRequest): boolean {
+  const hasInput =
+    (typeof payload.input === "string" && payload.input.length > 0) ||
+    (Array.isArray(payload.input) && payload.input.length > 0);
+  const hasInstructions =
+    typeof payload.instructions === "string" && payload.instructions.length > 0;
+  return !hasInput && !hasInstructions;
+}
+
 function respondToResponsesProbe(
   payload: ResponsesRequest,
   res: ServerResponse,
@@ -1010,6 +1173,40 @@ async function handleChatPassthrough(
     cfg,
     readActiveOverrideSafely(cfg)
   );
+  // 多模态 fallback（chat completions 路径）：仅对声明了 vision 能力的 provider
+  // （目前只有 MiMo）生效，不影响其他 provider/模型。
+  const visionFallbackModel = resolveVisionFallback(cfg);
+  const supportsVision = selectedRaw.provider.supportsVision?.bind(selectedRaw.provider);
+  if (visionFallbackModel && supportsVision) {
+    const effectiveModel = selectedRaw.upstreamModel;
+    if (!supportsVision(effectiveModel) && chatRequestContainsImages(payload)) {
+      const resolved = selectedRaw.provider.resolveModel(visionFallbackModel);
+      // Guard against cross-provider misrouting: only rewrite when the active
+      // provider actually knows this vision model. Otherwise (e.g. DeepSeek
+      // active + default "mimo-v2.5") we'd hand the provider's key to a model
+      // it can't serve. Skip the fallback and keep the original model instead.
+      if (!resolved) {
+        log.warn("vision fallback skipped: active provider can't resolve fallback model", {
+          provider: selectedRaw.provider.id,
+          from: effectiveModel,
+          fallbackModel: visionFallbackModel,
+        });
+      } else {
+        selectedRaw.rewriteNotice = {
+          from: effectiveModel,
+          to: resolved.id,
+          reason: `multimodal fallback — request contains images but model "${effectiveModel}" does not support vision`,
+        };
+        selectedRaw.upstreamModel = resolved.id;
+        selectedRaw.modelInfo = resolved;
+        log.info("vision fallback applied", {
+          from: effectiveModel,
+          to: resolved.id,
+          provider: selectedRaw.provider.id,
+        });
+      }
+    }
+  }
   const { provider, upstreamModel, modelInfo, rewriteNotice } = selectedRaw;
   const { runtime, source: apiKeySource } = resolveRuntimeForUser(
     selectedRaw.runtime,
@@ -1022,7 +1219,7 @@ async function handleChatPassthrough(
     upstreamModel,
     apiKeySource,
   });
-  if (rewriteNotice) {
+  if (rewriteNotice && !resolveSilentRewrite(cfg)) {
     // INFO, not WARN — see handleResponses for the rationale.
     log.info("model fallback applied — client sent unknown model id, request continues with provider default", {
       provider: provider.id,
@@ -1037,6 +1234,7 @@ async function handleChatPassthrough(
     exposeReasoning: cfg.exposeReasoning,
     disableThinking: resolveDisableThinking(cfg),
     forceHighEffort: resolveForceHighEffort(cfg),
+    upstreamModel,
   });
   body.model = upstreamModel;
 
@@ -1045,7 +1243,7 @@ async function handleChatPassthrough(
 
   const startedAt = Date.now();
   const requestBodySnapshot = bodyForLog(payload);
-  const rewriteLogFields = rewriteNotice
+  const rewriteLogFields = rewriteNotice && !resolveSilentRewrite(cfg)
     ? (() => {
         const w = rewriteWarning(rewriteNotice);
         return { error_code: w.code, error_snippet: w.message };
@@ -1330,6 +1528,20 @@ export function startServer(cfg: Config): Server {
     }
     sendJson(res, 404, errorEnvelope(404, "not_found", `no route for ${req.method} ${url}`));
   });
+
+  if (cfg.adminEnabled) {
+    const maintain = () => {
+      const result = runLogMaintenance(cfg);
+      if (result.removed > 0) {
+        log.info(
+          `log maintenance removed ${result.removed} rows older than ${result.retentionDays} day(s)`
+        );
+      }
+    };
+    maintain();
+    const tid = setInterval(maintain, 6 * 60 * 60 * 1000);
+    server.on("close", () => clearInterval(tid));
+  }
 
   server.listen(cfg.port, cfg.host);
   return server;

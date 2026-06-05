@@ -1,6 +1,55 @@
-# Publishing mimo2codex to npm
+# Publishing mimo2codex
 
 Maintainer's runbook. If you're a user, you don't need this — just `npm install -g mimo2codex`.
+
+---
+
+## Release pipelines at a glance (v0.5.x+)
+
+从 v0.5.0 起 mimo2codex 有**三条独立**的发版流水线，分别推**不同的 git tag** 触发。一次完整 GA 发版要推**两个** tag：`vX.Y.Z`（带动 npm + Docker）+ `vX.Y.Z-desktop`（带动 Win/Mac 桌面端打包）。
+
+| Pipeline | Workflow file | 触发 tag pattern | 产出 |
+|----------|---------------|-----------------|------|
+| **npm** | `.github/workflows/publish.yml` | `v*`（排除 `v*-desktop*`） | 发包到 npmjs.com，按 SemVer 自动选 dist-tag（`latest` / `beta` / `rc` / ...）+ 创建 GitHub Release |
+| **Docker** | `.github/workflows/docker.yml` | `v*.*.*`（排除 `v*-desktop*`）+ `push` 到 main/master | 推 multi-arch 镜像到 ghcr.io |
+| **Desktop (Win / Mac)** | `.github/workflows/build-desktop.yml` | `v*-desktop` 或 `v*-desktop.N` | Electron 打包 `.exe` / `.zip`，上传到 GitHub Release |
+
+### 完整 GA 发版流程（以 v0.5.4 为例）
+
+```bash
+# 1. 确认 working tree 干净、main 最新、所有 v0.5.4 commits 已合并
+git status
+git log --oneline origin/main..main
+
+# 2. 推 npm + Docker tag → 触发 publish.yml 和 docker.yml
+git push origin main
+git tag v0.5.4
+git push origin v0.5.4
+# ↑ npm 自动发版（dist-tag=latest），Docker 镜像同时构建并推 ghcr.io
+
+# 3. 推 desktop tag → 触发 build-desktop.yml
+git tag v0.5.4-desktop
+git push origin v0.5.4-desktop
+# ↑ Win/Mac 桌面端打包，产物自动上传到对应的 GitHub Release
+```
+
+### Tag 命名速查
+
+| Tag 形态 | 干什么 |
+|----------|--------|
+| `v0.5.4` | 正式 GA，npm + Docker |
+| `v0.5.4-desktop` | v0.5.4 对应的桌面端打包（首次） |
+| `v0.5.4-desktop.1` | v0.5.4 桌面端重打（修复 packaging bug 不动代码版本号） |
+| `v0.5.5-beta.0` | npm pre-release，自动走 `dist-tag=beta`；不触发 desktop |
+| `v0.5.5-beta.0-desktop` | beta 对应的桌面端打包（如果需要） |
+
+### 备注
+
+- **npm 和 Docker 是同一 tag（`v0.5.4`）驱动的** —— 一次推送，两个流水线并行跑。
+- **桌面端**故意拆出 `-desktop` 后缀，是因为打包失败 / 测试 / 重传不应该让 npm 也跟着重发（npm 不允许重发同一个版本号）。一个 npm 版本可以对应多个桌面端 tag（`v0.5.4-desktop` / `v0.5.4-desktop.1` / `v0.5.4-desktop.2`）。
+- **Docker 也会在 push 到 main 时构建**（不带 tag 也跑），这是 dev image；只有打 tag 推送时才生成对应版本号的 release image。
+- **手动触发**：每个 workflow 都支持 `workflow_dispatch`，在 Actions UI 里能不动 tag 就跑（适合调试 / 重试）。
+- **promote.yml** 是单独的：用于把已经发布的 npm 版本从一个 dist-tag 移到另一个（比如 `beta` → `latest`），不需要重新发版。详见下面"Tagging beta / next releases"小节。
 
 ---
 

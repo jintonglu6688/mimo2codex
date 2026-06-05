@@ -23,3 +23,10 @@ venv/
 .mimo2codex/
 
 config.yaml
+
+# desktop shell build artifacts
+package/desktop/dist/
+package/desktop/node_modules/
+package/desktop/resources/icons/
+package/desktop/resources/sidecar/
+package/desktop/release/

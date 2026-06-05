@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectContextOverflow } from "../src/upstream/contextOverflow.js";
+import { detectContextOverflow, detectMalformedJsonField } from "../src/upstream/contextOverflow.js";
 
 describe("detectContextOverflow", () => {
   it("matches OpenAI context_length_exceeded error code", () => {
@@ -116,5 +116,68 @@ describe("detectContextOverflow", () => {
     const raw = "prompt is too long: 99k > 32k";
     const result = detectContextOverflow({ status: 400, snippet: raw });
     expect(result?.message).toContain(raw);
+  });
+});
+
+describe("detectMalformedJsonField", () => {
+  // Real-world reproducer body from a user-reported long-conversation 400.
+  const mimoSseError =
+    'data:{"error":{"code":"400","message":"unexpected end of data: line 1 column 46 (char 45)","param":"","type":"BadRequest"}}\n\n';
+
+  it("matches MiMo's SSE-wrapped 'unexpected end of data' error", () => {
+    const result = detectMalformedJsonField({ status: 400, snippet: mimoSseError });
+    expect(result).not.toBeNull();
+    expect(result!.code).toBe("malformed_request_field");
+    expect(result!.message).toContain("malformed JSON field");
+    expect(result!.message).toContain("畸形 JSON");
+    expect(result!.message).toContain("tool_call.arguments");
+  });
+
+  it("matches a bare 'unexpected end of data: line 1 column N' string", () => {
+    const result = detectMalformedJsonField({
+      status: 400,
+      snippet: "unexpected end of data: line 1 column 12",
+    });
+    expect(result).not.toBeNull();
+  });
+
+  it("preserves the raw upstream snippet at the tail for debugging", () => {
+    const result = detectMalformedJsonField({ status: 400, snippet: mimoSseError });
+    expect(result!.message).toContain(mimoSseError);
+  });
+
+  it("does NOT match unrelated 400s", () => {
+    expect(
+      detectMalformedJsonField({
+        status: 400,
+        snippet: '{"error":{"message":"invalid api key"}}',
+      })
+    ).toBeNull();
+    expect(
+      detectMalformedJsonField({
+        status: 400,
+        snippet: "context_length_exceeded",
+      })
+    ).toBeNull();
+  });
+
+  it("does NOT trigger on non-400 statuses", () => {
+    expect(
+      detectMalformedJsonField({ status: 500, snippet: "unexpected end of data: line 1 column 5" })
+    ).toBeNull();
+    expect(
+      detectMalformedJsonField({ status: 200, snippet: "unexpected end of data: line 1 column 5" })
+    ).toBeNull();
+  });
+
+  it("returns null when snippet is missing", () => {
+    expect(detectMalformedJsonField({ status: 400, snippet: undefined })).toBeNull();
+    expect(detectMalformedJsonField({ status: 400, snippet: "" })).toBeNull();
+  });
+
+  it("recovery hint mentions /compact alternative (new codex session)", () => {
+    const result = detectMalformedJsonField({ status: 400, snippet: mimoSseError });
+    expect(result!.message).toContain("new codex session");
+    expect(result!.message).toContain("新建 codex 会话");
   });
 });

@@ -46,6 +46,13 @@ import type { GenericProviderSpec } from "../providers/generic.js";
 import { PROVIDER_PRESETS } from "../providers/presets.js";
 import { isAbsolute as pathIsAbsolute } from "node:path";
 import { applyCodex, deleteBackupPair, readCodexState, restoreCodex } from "../codex/state.js";
+import {
+  CodexBusyError,
+  listCodexSessions,
+  migrateSessionProvider,
+} from "../codex/sessions.js";
+import { isCodexRunning, launchCodex, restartCodex } from "../codex/restart.js";
+import { parseTranscript, resolveRolloutPath } from "../codex/transcript.js";
 import { resolveDataDirInfo } from "../db/dataDir.js";
 import { pointerFilePath } from "../db/dataDirPointer.js";
 import {
@@ -76,6 +83,12 @@ import {
   getActiveOverride,
   setActiveOverride,
 } from "../db/overrides.js";
+import {
+  parseLogBodyMode,
+  parseLogRetentionDays,
+  resolveLogBodyMode,
+  resolveLogRetentionDays,
+} from "../logging/settings.js";
 import {
   callOpenAICompat,
   callResponsesPassthrough,
@@ -323,7 +336,7 @@ function writeInlineProviderRuntimes(
   if (!inputs.length) return 0;
   const filePath = dotenvPathFor(cfg);
   if (!filePath) {
-    throw new Error("no .env path is available — start with a data directory and admin enabled");
+    throw new Error("no .env path is available - start with a data directory and admin enabled");
   }
 
   const values: Record<string, string> = {};
@@ -331,7 +344,7 @@ function writeInlineProviderRuntimes(
     const provider = PROVIDERS[input.id];
     if (!provider) continue;
     values[provider.envKeys[0]] = input.apiKey;
-    if (input.baseUrl) {
+    if (input.baseUrl && provider.baseUrlEnv) {
       values[provider.baseUrlEnv] = input.baseUrl;
     }
   }
@@ -375,6 +388,58 @@ async function handleApi(ctx: RouteContext): Promise<void> {
       restartReason: restart?.reason ?? null,
       restartTargetDir: restart?.targetDir ?? null,
     });
+  }
+
+  // GET /admin/api/desktop/sentinel — tell the admin UI whether it's running
+  // INSIDE the Electron desktop shell. The sidecar process spawned by the
+  // desktop main has MIMO2CODEX_DESKTOP_PARENT=1 injected into its env (see
+  // package/desktop/src/paths.ts → SidecarPaths.env). The admin React UI uses
+  // this to decide whether to show the "Open Desktop Settings" button — it
+  // only makes sense when there IS a desktop shell to call back to. This
+  // endpoint is unauthenticated on purpose: the answer is the same for every
+  // caller and contains no secrets.
+  if (req.method === "GET" && pathname === "/admin/api/desktop/sentinel") {
+    return sendJson(res, 200, {
+      inDesktop: process.env.MIMO2CODEX_DESKTOP_PARENT === "1",
+    });
+  }
+
+  // POST /admin/api/desktop/signal — body { action: "open-settings" }. The
+  // sidecar writes a one-line JSON to <dataDir>/.desktop-signal.json, which
+  // the Electron main watches via fs.watch and acts on (e.g. opening the
+  // Settings window). This indirection avoids exposing a custom protocol or
+  // running Electron's preload bridge inside the admin BrowserWindow.
+  // Locked to the in-desktop case so a stray POST from a browser tab on a
+  // CLI install can't make anything happen.
+  if (req.method === "POST" && pathname === "/admin/api/desktop/signal") {
+    if (process.env.MIMO2CODEX_DESKTOP_PARENT !== "1") {
+      return sendError(
+        res,
+        404,
+        "not_in_desktop",
+        "this endpoint is only available when running inside the desktop shell"
+      );
+    }
+    type Body = { action?: unknown };
+    const body = await readJsonBody<Body>(req);
+    const action = typeof body.action === "string" ? body.action : null;
+    if (action !== "open-settings") {
+      return sendError(res, 400, "invalid_action", "action must be 'open-settings'");
+    }
+    try {
+      const { writeFileSync } = await import("node:fs");
+      const signalPath = join(cfg.dataDir, ".desktop-signal.json");
+      writeFileSync(
+        signalPath,
+        JSON.stringify({ action, ts: Date.now() }) + "\n",
+        "utf8"
+      );
+      log.info("desktop signal written", { signalPath, action });
+      return sendJson(res, 200, { ok: true });
+    } catch (err) {
+      log.error("failed to write desktop signal", { error: (err as Error).message });
+      return sendError(res, 500, "signal_write_failed", (err as Error).message);
+    }
   }
 
   // GET /admin/api/data-dir/info — current path + resolution source for the
@@ -1007,31 +1072,23 @@ async function handleApi(ctx: RouteContext): Promise<void> {
       if (!isProviderId(providerId)) {
         return sendError(res, 404, "unknown_provider", `provider ${providerId} not registered`);
       }
+
+      const provider = PROVIDERS[providerId];
       const filePath = dotenvPathFor(cfg);
       if (!filePath) {
-        return sendError(
-          res,
-          400,
-          "no_writable_location",
-          "no .env path is available — start with a data directory and admin enabled"
-        );
+        return sendError(res, 400, "no_writable_location", "no .env path is available");
       }
-      let body: { apiKey?: unknown; baseUrl?: unknown };
-      try {
-        body = await readJsonBody<{ apiKey?: unknown; baseUrl?: unknown }>(req);
-      } catch (err) {
-        return sendError(res, 400, "invalid_json", (err as Error).message);
-      }
-      if (typeof body.apiKey !== "string" || !body.apiKey.trim()) {
+
+      const body = await readJsonBody<{ apiKey?: unknown; baseUrl?: unknown }>(req);
+      if (typeof body.apiKey !== "string" || body.apiKey.trim().length === 0) {
         return sendError(res, 400, "invalid_body", "apiKey is required");
       }
 
-      const provider = PROVIDERS[providerId];
       const apiKeyEnv = provider.envKeys[0];
       const values: Record<string, string> = {
         [apiKeyEnv]: body.apiKey.trim(),
       };
-      if (typeof body.baseUrl === "string" && body.baseUrl.trim()) {
+      if (provider.baseUrlEnv && typeof body.baseUrl === "string" && body.baseUrl.trim().length > 0) {
         values[provider.baseUrlEnv] = body.baseUrl.trim();
       }
 
@@ -1108,6 +1165,152 @@ async function handleApi(ctx: RouteContext): Promise<void> {
           "invalid_body",
           "body must include at least one of: disabled (boolean), forceHighEffort (boolean)",
         );
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+    return sendError(res, 405, "method_not_allowed", "use GET or PUT");
+  }
+
+  // GET/PUT /admin/api/vision-fallback — multimodal fallback toggle + model.
+  // When enabled, requests containing images are automatically routed to a
+  // vision-capable model even if the client's model doesn't support images.
+  if (pathname === "/admin/api/vision-fallback") {
+    if (req.method === "GET") {
+      const enabled = (() => {
+        try {
+          return getSetting("codex.visionFallbackEnabled") === "1";
+        } catch {
+          return false;
+        }
+      })();
+      const model = (() => {
+        try {
+          return getSetting("codex.visionFallbackModel") || "mimo-v2.5";
+        } catch {
+          return "mimo-v2.5";
+        }
+      })();
+      return sendJson(res, 200, { enabled, model });
+    }
+    if (req.method === "PUT") {
+      const body = await readJsonBody<{ enabled?: unknown; model?: unknown }>(req);
+      let changed = false;
+      if (typeof body.enabled === "boolean") {
+        setSetting("codex.visionFallbackEnabled", body.enabled ? "1" : "0");
+        log.info(`codex.visionFallbackEnabled set to ${body.enabled} via admin UI`);
+        changed = true;
+      }
+      if (typeof body.model === "string") {
+        const trimmed = body.model.trim();
+        if (!trimmed) {
+          return sendError(res, 400, "invalid_body", "model must be a non-empty string");
+        }
+        setSetting("codex.visionFallbackModel", trimmed);
+        log.info(`codex.visionFallbackModel set to "${trimmed}" via admin UI`);
+        changed = true;
+      }
+      if (!changed) {
+        return sendError(
+          res,
+          400,
+          "invalid_body",
+          "body must include at least one of: enabled (boolean), model (string)",
+        );
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+    return sendError(res, 405, "method_not_allowed", "use GET or PUT");
+  }
+
+  // GET/PUT /admin/api/log-settings — quick toggle for the "model fallback
+  // applied" rewrite log. Default is silent (suppressed). env
+  // MIMO2CODEX_SILENT_REWRITE, when set, overrides and disables the toggle.
+  if (pathname === "/admin/api/log-settings") {
+    if (req.method === "GET") {
+      const cliOverride = cfg.silentRewriteFromCli ?? null;
+      const bodyModeCliOverride = cfg.logBodyModeFromCli ?? null;
+      const retentionDaysCliOverride =
+        cfg.logRetentionDaysFromCli === undefined ? null : cfg.logRetentionDaysFromCli;
+      const retentionDaysCliOverrideActive = cfg.logRetentionDaysFromCli !== undefined;
+      const setting = (() => {
+        try {
+          const s = getSetting("logging.silentRewrite");
+          return s === null ? true : s !== "0";
+        } catch {
+          return true;
+        }
+      })();
+      const effective = cliOverride !== null ? cliOverride : setting;
+      return sendJson(res, 200, {
+        silentRewrite: effective,
+        cliOverride,
+        bodyMode: resolveLogBodyMode(cfg),
+        bodyModeCliOverride,
+        retentionDays: resolveLogRetentionDays(cfg),
+        retentionDaysCliOverride,
+        retentionDaysCliOverrideActive,
+      });
+    }
+    if (req.method === "PUT") {
+      const body = await readJsonBody<{
+        silentRewrite?: unknown;
+        bodyMode?: unknown;
+        retentionDays?: unknown;
+      }>(req);
+      const writes: Array<{ key: string; value: string; logMessage: string }> = [];
+      if (body.silentRewrite !== undefined) {
+        if (typeof body.silentRewrite !== "boolean") {
+          return sendError(res, 400, "invalid_body", "silentRewrite must be a boolean");
+        }
+        writes.push({
+          key: "logging.silentRewrite",
+          value: body.silentRewrite ? "1" : "0",
+          logMessage: `logging.silentRewrite set to ${body.silentRewrite} via admin UI`,
+        });
+      }
+      if (body.bodyMode !== undefined) {
+        if (typeof body.bodyMode !== "string" || !parseLogBodyMode(body.bodyMode)) {
+          return sendError(res, 400, "invalid_body", "bodyMode must be full, errors-only, or off");
+        }
+        writes.push({
+          key: "logging.bodyMode",
+          value: body.bodyMode,
+          logMessage: `logging.bodyMode set to ${body.bodyMode} via admin UI`,
+        });
+      }
+      if (body.retentionDays !== undefined) {
+        if (body.retentionDays !== null && !Number.isInteger(body.retentionDays)) {
+          return sendError(res, 400, "invalid_body", "retentionDays must be null or an integer");
+        }
+        const parsed =
+          body.retentionDays === null
+            ? null
+            : parseLogRetentionDays(String(body.retentionDays));
+        if (parsed === undefined) {
+          return sendError(
+            res,
+            400,
+            "invalid_body",
+            "retentionDays must be null, 0, or a positive integer"
+          );
+        }
+        writes.push({
+          key: "logging.retentionDays",
+          value: parsed === null ? "0" : String(parsed),
+          logMessage: `logging.retentionDays set to ${parsed === null ? "disabled" : parsed} via admin UI`,
+        });
+      }
+      if (writes.length === 0) {
+        return sendError(
+          res,
+          400,
+          "invalid_body",
+          "body must include at least one of: silentRewrite, bodyMode, retentionDays"
+        );
+      }
+      for (const write of writes) {
+        setSetting(write.key, write.value);
+        log.info(write.logMessage);
       }
       return sendJson(res, 200, { ok: true });
     }
@@ -1771,6 +1974,144 @@ async function handleApi(ctx: RouteContext): Promise<void> {
           : "restore_failed";
       const status = code === "not_found" ? 404 : 400;
       return sendError(res, status, code, msg);
+    }
+  }
+
+  // GET /admin/api/codex-sessions — list Codex Desktop sessions (read-only),
+  // grouped client-side by provider → project (cwd) → session. Reads Codex's
+  // own state_<N>.sqlite. Local mode only: a server-mode container has no
+  // access to the operator's ~/.codex.
+  if (req.method === "GET" && pathname === "/admin/api/codex-sessions") {
+    if (cfg.authMode === "on") {
+      return sendJson(res, 200, {
+        localOnly: true,
+        dbPath: null,
+        available: false,
+        sessions: [],
+        providers: [],
+      });
+    }
+    try {
+      const result = listCodexSessions();
+      return sendJson(res, 200, { localOnly: false, ...result });
+    } catch (err) {
+      return sendError(res, 500, "sessions_read_failed", (err as Error).message);
+    }
+  }
+
+  // GET /admin/api/codex-sessions/transcript?id=<id> — parse a session's
+  // rollout JSONL into a readable transcript (messages / tool calls / patches)
+  // for the preview drawer. Read-only, local mode only.
+  if (req.method === "GET" && pathname === "/admin/api/codex-sessions/transcript") {
+    if (cfg.authMode === "on") {
+      return sendJson(res, 200, { localOnly: true, available: false, cwd: null, model: null, items: [] });
+    }
+    const id = query.get("id");
+    if (!id) return sendError(res, 400, "invalid_body", "id query param is required");
+    try {
+      const session = listCodexSessions().sessions.find((s) => s.id === id);
+      const rolloutPath = resolveRolloutPath(id, session?.rolloutPath ?? null);
+      const transcript = parseTranscript(rolloutPath);
+      return sendJson(res, 200, { localOnly: false, title: session?.title ?? "", ...transcript });
+    } catch (err) {
+      return sendError(res, 500, "transcript_failed", (err as Error).message);
+    }
+  }
+
+  // POST /admin/api/codex-sessions/migrate — move a session to another
+  // provider by rewriting its model_provider (DB + rollout). Backs up first
+  // and refuses while Codex Desktop holds the DB lock. Local mode only.
+  if (req.method === "POST" && pathname === "/admin/api/codex-sessions/migrate") {
+    if (cfg.authMode === "on") {
+      return sendError(res, 400, "local_only", "session migration is only available in local mode");
+    }
+    let body: { id?: unknown; toProvider?: unknown };
+    try {
+      body = await readJsonBody<{ id?: unknown; toProvider?: unknown }>(req);
+    } catch (err) {
+      return sendError(res, 400, "invalid_json", (err as Error).message);
+    }
+    if (typeof body.id !== "string" || !body.id.trim()) {
+      return sendError(res, 400, "invalid_body", "id must be a non-empty string");
+    }
+    if (typeof body.toProvider !== "string" || !body.toProvider.trim()) {
+      return sendError(res, 400, "invalid_body", "toProvider must be a non-empty string");
+    }
+    try {
+      const result = migrateSessionProvider(body.id, body.toProvider);
+      log.info(
+        `codex session migrated: id=${result.id} ${result.fromProvider} → ${result.toProvider}`
+      );
+      return sendJson(res, 200, { ok: true, restartRequired: true, ...result });
+    } catch (err) {
+      if (err instanceof CodexBusyError) {
+        return sendError(
+          res,
+          409,
+          "codex_running",
+          "Codex Desktop appears to be running — fully quit it before migrating a session"
+        );
+      }
+      const msg = (err as Error).message;
+      const status = msg.includes("not found") ? 404 : 400;
+      return sendError(res, status, "migrate_failed", msg);
+    }
+  }
+
+  // GET /admin/api/codex-status — is the Codex Desktop app running? Used by the
+  // desktop shell to offer to launch it on startup. Local mode only.
+  if (req.method === "GET" && pathname === "/admin/api/codex-status") {
+    if (cfg.authMode === "on") {
+      return sendJson(res, 200, { localOnly: true, supported: false, running: false });
+    }
+    try {
+      const status = await isCodexRunning();
+      return sendJson(res, 200, { localOnly: false, ...status });
+    } catch (err) {
+      return sendError(res, 500, "status_failed", (err as Error).message);
+    }
+  }
+
+  // POST /admin/api/codex-launch — launch Codex Desktop (no kill). Local only.
+  if (req.method === "POST" && pathname === "/admin/api/codex-launch") {
+    if (cfg.authMode === "on") {
+      return sendError(res, 400, "local_only", "launching Codex is only available in local mode");
+    }
+    try {
+      const result = await launchCodex();
+      if (!result.supported) {
+        return sendError(res, 400, "unsupported_platform", `launching Codex isn't supported on ${process.platform}`);
+      }
+      log.info(`codex launch requested: launched=${result.launched}`);
+      return sendJson(res, 200, { ok: true, ...result });
+    } catch (err) {
+      return sendError(res, 500, "launch_failed", (err as Error).message);
+    }
+  }
+
+  // POST /admin/api/codex-restart — kill + relaunch the Codex Desktop app so
+  // a freshly-applied config takes effect without a manual restart. Launches
+  // Codex if it wasn't running. Local mode only.
+  if (req.method === "POST" && pathname === "/admin/api/codex-restart") {
+    if (cfg.authMode === "on") {
+      return sendError(res, 400, "local_only", "restarting Codex is only available in local mode");
+    }
+    try {
+      const result = await restartCodex();
+      if (!result.supported) {
+        return sendError(
+          res,
+          400,
+          "unsupported_platform",
+          `restarting Codex isn't supported on ${result.platform} — please restart it manually`
+        );
+      }
+      log.info(
+        `codex restart: wasRunning=${result.wasRunning} killed=${result.killed} relaunched=${result.relaunched}`
+      );
+      return sendJson(res, 200, { ok: true, ...result });
+    } catch (err) {
+      return sendError(res, 500, "restart_failed", (err as Error).message);
     }
   }
 

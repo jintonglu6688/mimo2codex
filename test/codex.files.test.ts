@@ -100,6 +100,37 @@ describe("codex/files", () => {
     expect(readFileSync(backup!, "utf-8")).toBe("original");
   });
 
+  it("backupFile writes into the .m2c-backups/ subfolder, not the codex dir root", async () => {
+    const { files, paths } = await loadModules();
+    const { readdirSync } = await import("node:fs");
+    const target = path.join(paths.codexDir(), "auth.json");
+    files.atomicWrite(target, "original");
+    const backup = files.backupFile(target, 999);
+    expect(backup!).toBe(
+      path.join(files.backupsDir(), `auth.json.bak.999.${process.pid}`)
+    );
+    // Root listing stays clean — no *.bak.* directly under ~/.codex/.
+    const rootNames = readdirSync(paths.codexDir());
+    expect(rootNames.filter((n) => n.includes(".bak."))).toHaveLength(0);
+  });
+
+  it("migrateLegacyBackups moves pre-v0.6.0 sibling backups into .m2c-backups/", async () => {
+    const { files, paths } = await loadModules();
+    const target = path.join(paths.codexDir(), "auth.json");
+    files.atomicWrite(target, "x");
+    // Simulate the old layout: a sibling backup written directly in ~/.codex/.
+    const legacy = path.join(paths.codexDir(), `auth.json.bak.42.${process.pid}.preserve`);
+    writeFileSync(legacy, "x");
+    expect(existsSync(legacy)).toBe(true);
+    // listBackups triggers the lazy migration.
+    const list = files.listBackups(target);
+    expect(existsSync(legacy)).toBe(false);
+    expect(list).toHaveLength(1);
+    expect(list[0].ts).toBe(42);
+    expect(list[0].preserved).toBe(true);
+    expect(list[0].path).toBe(path.join(files.backupsDir(), `auth.json.bak.42.${process.pid}.preserve`));
+  });
+
   it("listBackups returns entries sorted descending by ts", async () => {
     const { files, paths } = await loadModules();
     const target = path.join(paths.codexDir(), "auth.json");

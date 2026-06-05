@@ -54,9 +54,23 @@ export function UpdateBanner() {
         }
         description={
           <Space wrap size="small" style={{ marginTop: 4 }}>
-            <Button type="primary" size="small" onClick={() => setUpdateOpen(true)}>
-              {t("banner.actionUpdate")}
-            </Button>
+            {versionInfo.method === "desktop" ? (
+              // Desktop shell can't `npm install -g` itself — direct the user
+              // to the download page instead of running the update modal.
+              <Button
+                type="primary"
+                size="small"
+                href="https://mimodoc.chengj.online/download"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t("banner.actionOpenDownload")}
+              </Button>
+            ) : (
+              <Button type="primary" size="small" onClick={() => setUpdateOpen(true)}>
+                {t("banner.actionUpdate")}
+              </Button>
+            )}
             <Button size="small" onClick={() => setCommandOpen(true)}>
               {t("banner.actionShowCommand")}
             </Button>

@@ -10,6 +10,9 @@ import {
   ToolOutlined,
   CheckCircleFilled,
   ArrowRightOutlined,
+  DownloadOutlined,
+  CodeOutlined,
+  DesktopOutlined,
 } from "@ant-design/icons";
 import { useTranslation, Trans } from "react-i18next";
 import { IMAGES } from "../assets/images";
@@ -67,14 +70,40 @@ export default function Landing() {
                 components={{ 1: <strong /> }}
               />
             </p>
+            {/*
+              Hero quick-intro bullets. These sit between the subtitle and the
+              CTA buttons so visitors get a "what is this" answer without
+              having to scroll to the features section. Three lines max — any
+              more and the hero becomes a wall of text.
+            */}
+            <ul className="hero-bullets">
+              <li>
+                <CheckCircleFilled style={{ color: "#52c41a" }} />{" "}
+                {t("hero.bullets.0")}
+              </li>
+              <li>
+                <CheckCircleFilled style={{ color: "#52c41a" }} />{" "}
+                {t("hero.bullets.1")}
+              </li>
+              <li>
+                <CheckCircleFilled style={{ color: "#52c41a" }} />{" "}
+                {t("hero.bullets.2")}
+              </li>
+            </ul>
             <div className="hero-cta">
-              <Link to="/docs/env-setup">
-                <Button type="primary" size="large">
-                  {t("hero.ctaPrimary")} <ArrowRightOutlined />
+              {/* Primary CTA is the desktop download — fastest path to a
+                  working install for non-CLI users. The previous "Get Started"
+                  (now demoted to secondary) leads to env-setup docs, which
+                  matters more for developers who plan to install via npm. */}
+              <Link to="/download">
+                <Button type="primary" size="large" icon={<DownloadOutlined />}>
+                  {t("hero.ctaDownload")}
                 </Button>
               </Link>
-              <Link to="/docs">
-                <Button size="large">{t("hero.ctaTertiary")}</Button>
+              <Link to="/docs/env-setup">
+                <Button size="large">
+                  {t("hero.ctaPrimary")} <ArrowRightOutlined />
+                </Button>
               </Link>
               <Button
                 size="large"
@@ -187,7 +216,7 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── Quick start ───────────────────────────────────────── */}
+      {/* ── Three deployment options ───────────────────────────── */}
       <section className="section">
         <div className="section-inner">
           <div className="section-head">
@@ -196,22 +225,36 @@ export default function Landing() {
           </div>
           <div className="quick-steps">
             <div className="qstep">
-              <span className="qstep-num">1</span>
-              <h4>{t("quickstart.steps.install.title")}</h4>
-              <p>{t("quickstart.steps.install.body")}</p>
+              <span className="qstep-num">
+                <CodeOutlined />
+              </span>
+              <h4>{t("quickstart.steps.cli.title")}</h4>
+              <p>{t("quickstart.steps.cli.body")}</p>
               <CodeLine>npm install -g mimo2codex</CodeLine>
             </div>
             <div className="qstep">
-              <span className="qstep-num">2</span>
-              <h4>{t("quickstart.steps.init.title")}</h4>
-              <p>{t("quickstart.steps.init.body")}</p>
-              <CodeLine>mimo2codex init</CodeLine>
+              <span className="qstep-num">
+                <ContainerOutlined />
+              </span>
+              <h4>{t("quickstart.steps.docker.title")}</h4>
+              <p>{t("quickstart.steps.docker.body")}</p>
+              <Link to="/docs/auth-deployment">
+                <Button type="primary" ghost>
+                  {t("quickstart.steps.docker.cta")} <ArrowRightOutlined />
+                </Button>
+              </Link>
             </div>
             <div className="qstep">
-              <span className="qstep-num">3</span>
-              <h4>{t("quickstart.steps.run.title")}</h4>
-              <p>{t("quickstart.steps.run.body")}</p>
-              <CodeLine>mimo2codex</CodeLine>
+              <span className="qstep-num">
+                <DesktopOutlined />
+              </span>
+              <h4>{t("quickstart.steps.desktop.title")}</h4>
+              <p>{t("quickstart.steps.desktop.body")}</p>
+              <Link to="/download">
+                <Button type="primary" icon={<DownloadOutlined />}>
+                  {t("quickstart.steps.desktop.cta")}
+                </Button>
+              </Link>
             </div>
           </div>
         </div>

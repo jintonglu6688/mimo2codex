@@ -21,4 +21,18 @@ describe("detectUpdateMethod", () => {
     expect(info.command).toMatch(/npm install --prefix/);
     expect(info.command).toMatch(/build:all/);
   });
+
+  it("returns method='desktop' when MIMO2CODEX_DESKTOP_PARENT is set", () => {
+    const prev = process.env.MIMO2CODEX_DESKTOP_PARENT;
+    process.env.MIMO2CODEX_DESKTOP_PARENT = "1";
+    try {
+      const info = detectUpdateMethod();
+      expect(info.method).toBe("desktop");
+      expect(info.steps).toEqual([]);
+      expect(info.command).toMatch(/mimodoc\.chengj\.online\/download/);
+    } finally {
+      if (prev === undefined) delete process.env.MIMO2CODEX_DESKTOP_PARENT;
+      else process.env.MIMO2CODEX_DESKTOP_PARENT = prev;
+    }
+  });
 });

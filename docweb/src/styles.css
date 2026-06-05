@@ -93,6 +93,26 @@ a:hover {
   color: var(--ink);
   font-weight: 600;
 }
+.hero-bullets {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hero-bullets li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 15px;
+  color: var(--ink);
+  line-height: 1.5;
+}
+.hero-bullets li .anticon {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
 .hero-cta {
   display: flex;
   gap: 12px;
@@ -417,7 +437,7 @@ a:hover {
   width: 28px;
   height: 28px;
   border-radius: 6px;
-  background: linear-gradient(135deg, #1677ff 0%, #003eb3 100%);
+  background: linear-gradient(135deg, #ff6a00 0%, #ffa94d 100%);
   display: inline-flex;
   align-items: center;
   justify-content: center;

@@ -2,7 +2,13 @@
   "hero": {
     "title": "mimo2codex",
     "subtitle": "Let the latest OpenAI Codex CLI / desktop talk to **any** modern LLM — locally.",
-    "ctaPrimary": "Get Started",
+    "bullets": {
+      "0": "Local proxy, runs in the background — zero client-side changes",
+      "1": "MiMo · DeepSeek · Kimi · MiniMax · SenseNova all work out of the box",
+      "2": "Pick your install: CLI, Docker, or desktop app"
+    },
+    "ctaDownload": "Download Desktop",
+    "ctaPrimary": "CLI Quickstart",
     "ctaSecondary": "GitHub",
     "ctaTertiary": "View Docs",
     "caption": "One-line install · Local proxy · ASCII-branded boot banner",
@@ -66,20 +72,22 @@
     }
   },
   "quickstart": {
-    "title": "Three steps to ship",
-    "subtitle": "From npm install to a running proxy in under a minute.",
+    "title": "Three ways to deploy",
+    "subtitle": "Power users on the CLI, teams on Docker, non-technical users on the desktop app — pick what fits.",
     "steps": {
-      "install": {
-        "title": "Install",
+      "cli": {
+        "title": "Command line (CLI)",
         "body": "Global install via npm — single binary, zero runtime config required."
       },
-      "init": {
-        "title": "Initialize",
-        "body": "Generates ~/.mimo2codex/.env and providers.json with sane defaults."
+      "docker": {
+        "title": "Docker deployment",
+        "body": "For intranet / team setups — user login, BYOK, OAuth, downloadable Codex config bundles.",
+        "cta": "Docker deployment guide"
       },
-      "run": {
-        "title": "Run",
-        "body": "Starts the proxy on 127.0.0.1:8788 — open /admin/ to manage models and keys."
+      "desktop": {
+        "title": "Windows / macOS desktop app",
+        "body": "Download and run — background service, starts on boot, no terminal required.",
+        "cta": "Download"
       }
     }
   },

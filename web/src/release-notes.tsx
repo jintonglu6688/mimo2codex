@@ -9,12 +9,12 @@
 //   3. Prepend a new `ReleaseNote` to RELEASE_NOTES below. Most recent first.
 //      The modal auto-shows it to users whose lastSeenVersion is below it.
 //
-// Keep entries user-facing: highlight what changed from the user's seat, name
-// the menu / button / page where the new thing lives, and (optionally) wire a
-// CTA that navigates straight to it.
+// Keep entries user-facing and SHORT — one line per change. The full prose
+// lives in doc/tag-log.{md,zh.md}; here we mirror every tag-log change briefly
+// so the modal stays scannable. We keep ONLY the latest version's entry.
 
 import type { ReactNode } from "react";
-import { ApiOutlined, RobotOutlined, GlobalOutlined } from "@ant-design/icons";
+import { BugOutlined, WindowsOutlined } from "@ant-design/icons";
 
 export interface BilingualText {
   en: string;
@@ -44,62 +44,45 @@ export interface ReleaseNote {
 }
 
 // ── Entries ──────────────────────────────────────────────────────────────
-// Most recent first. Per the v0.4.3 release: we keep ONLY the latest version
-// here so the in-app "What's new" modal stays tight — older release detail
-// lives in doc/tag-log.{md,zh.md} for users who want the full history.
+// Most recent first. We keep ONLY the latest version here so the in-app
+// "What's new" modal stays tight — older release detail lives in
+// doc/tag-log.{md,zh.md} for users who want the full history.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
-    version: "0.4.5",
-    date: "2026-05-22",
+    version: "0.5.23",
+    date: "2026-06-03",
     title: {
-      en: "Proxy support",
-      zh: "代理的支持",
+      en: "Windows CLI launcher + provider-config fix",
+      zh: "Windows CLI 启动器 + provider 配置修复",
+    },
+    summary: {
+      en: "Run Codex CLI in an isolated profile; plus a fix for the admin UI going 404 after saving a provider with a duplicate shortcut.",
+      zh: "用隔离配置跑 Codex CLI；并修复了保存重复 shortcut 的 provider 后后台变 404 的问题。",
     },
     highlights: [
       {
         kind: "new",
-        icon: <ApiOutlined />,
+        icon: <WindowsOutlined />,
         title: {
-          en: "Provider changes apply without restarting",
-          zh: "提供商变更无需重启即可生效",
+          en: "Windows: isolated Codex CLI launcher",
+          zh: "Windows：隔离的 Codex CLI 启动器",
         },
         description: {
-          en: "Saving generic providers now hot-reloads the provider registry and runtime map immediately. Operators and external managers can either call the service-level runtime API or attach an inline apiKey/serviceApiKey to PUT /admin/api/generic-providers; the key is written to the data directory .env, stripped before providers.json is persisted, and those models appear in /v1/models right away. Per-user BYOK remains separate.",
-          zh: "保存通用提供商后，现在会立即热重载 provider registry 和 runtime map。运维或外部管理工具既可以调用服务级 runtime API，也可以在 PUT /admin/api/generic-providers 时给 provider 附带一次性 apiKey/serviceApiKey；服务端会把 key 写入数据目录 .env，持久化 providers.json 前移除该字段，让这些模型立刻出现在 /v1/models 中。每用户 BYOK 仍保持独立。",
+          en: "Run Codex CLI against MiMo without touching the ~/.codex used by Codex Desktop — a PowerShell script uses a separate CODEX_HOME and auto-starts the proxy.",
+          zh: "用 Codex CLI 经 mimo2codex 接 MiMo，又不动 Codex 桌面端的 ~/.codex——PowerShell 脚本用独立 CODEX_HOME 并自动拉起代理。",
         },
-        location: {
-          en: "Admin API: PUT /admin/api/generic-providers and PUT /admin/api/service-provider-runtime/:providerId",
-          zh: "Admin API：PUT /admin/api/generic-providers 与 PUT /admin/api/service-provider-runtime/:providerId",
-        },
+        location: { en: "scripts/codex-mimo-isolated.ps1", zh: "scripts/codex-mimo-isolated.ps1" },
       },
       {
-        kind: "new",
-        icon: <GlobalOutlined />,
+        kind: "fixed",
+        icon: <BugOutlined />,
         title: {
-          en: "HTTP_PROXY / HTTPS_PROXY / NO_PROXY for outbound calls",
-          zh: "HTTP_PROXY / HTTPS_PROXY / NO_PROXY 让 mimo2codex 走代理",
+          en: "Saving a provider no longer breaks the admin UI",
+          zh: "shortcut冲突 保存 provider 不再把后台搞挂",
         },
         description: {
-          en: "Set HTTP_PROXY / HTTPS_PROXY in your shell, .env, or docker-compose environment and mimo2codex's upstream fetches route through it — same behavior as curl. NO_PROXY excludes are honored too. The startup banner shows a `proxy:` line that echoes the active configuration so env-detection is verifiable at a glance, and upstream-failure logs include the underlying cause code (ECONNREFUSED / ENOTFOUND / ETIMEDOUT) for easier diagnosis. Opt-out via MIMO2CODEX_NO_PROXY_FROM_ENV=1 (useful when your shell keeps HTTPS_PROXY set for curl/git but the proxy can't reach the upstream).",
-          zh: "在 shell / .env / docker-compose 的 environment 段设置 HTTP_PROXY / HTTPS_PROXY 即可，mimo2codex 向上游的请求会走该代理，行为与 curl 一致，NO_PROXY 排除列表也支持。启动 banner 多一行 `proxy:` 回显当前生效的代理，env 是否被识别一眼能看到；上游失败日志补上具体的错误码（ECONNREFUSED / ENOTFOUND / ETIMEDOUT），出问题不用再凭五个字猜。如果不想让 mimo2codex 跟着 shell 里的代理 env 走（典型场景：代理出口在境外、上游是国内域名），设 MIMO2CODEX_NO_PROXY_FROM_ENV=1 关掉。",
-        },
-        location: {
-          en: "docker-compose.yml environment: / .env / shell export — startup banner shows the active proxy",
-          zh: "docker-compose.yml environment: / .env / shell export —— 启动 banner 会回显当前代理",
-        },
-        ctaLabel: { en: "Proxy FAQ", zh: "代理 FAQ" },
-        ctaHref: "https://github.com/7as0nch/mimo2codex/blob/main/doc/proxy-faq.zh.md",
-      },
-      {
-        kind: "improved",
-        icon: <RobotOutlined />,
-        title: {
-          en: "Clearer upstream-failure diagnostics",
-          zh: "上游连接失败日志更易定位",
-        },
-        description: {
-          en: "The WARN line on upstream connect failure now carries the underlying error code and cause message alongside the top-level 'fetch failed'. The 502 response body to your client also includes the code. ECONNREFUSED on the proxy port vs ENOTFOUND on the upstream domain are now distinguishable at a glance.",
-          zh: "上游连接失败的 WARN 日志现在带上 underlying error code 和 cause message，不只是顶层的 'fetch failed'。返回给客户端的 502 错误信息里也包含这些细节。代理端口 ECONNREFUSED 还是上游域名 ENOTFOUND，一眼能区分。",
+          en: "A generic provider whose shortcut collided with a built-in (mimo/ds) or another provider could disable the admin database on the next start (/admin/ 404). It's now rejected at save time, and DB seeding skips duplicates instead of crashing.",
+          zh: "某个 generic provider 的 shortcut 撞上内置（mimo/ds）或其它 provider 时，下次启动会让 admin 数据库不可用（/admin/ 404）。现在保存时就拦下，且 seeding 会跳过重复项而不是崩溃。",
         },
       },
     ],

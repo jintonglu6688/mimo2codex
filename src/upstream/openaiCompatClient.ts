@@ -1,7 +1,7 @@
 import type { ChatRequest, ResponsesRequest } from "../translate/types.js";
 import { log, redactKey } from "../util/log.js";
 import type { ProviderEnhancedError } from "../providers/types.js";
-import { detectContextOverflow } from "./contextOverflow.js";
+import { detectContextOverflow, detectMalformedJsonField } from "./contextOverflow.js";
 
 export type ContextOverflowMode = "friendly" | "passthrough";
 
@@ -20,6 +20,13 @@ export interface UpstreamConfig {
   modelInfo?: { id: string; contextWindow?: number };
   connectTimeoutMs?: number;
   idleTimeoutMs?: number;
+  // Transient-failure retry. Defaults come from env
+  // (MIMO2CODEX_UPSTREAM_MAX_RETRIES / _RETRY_BASE_MS) when unset. maxRetries
+  // is the number of *extra* attempts after the first (so 6 ⇒ up to 7 tries).
+  // The default budget (6 retries, exp backoff capped at 12s) spans ~28s so a
+  // multi-second quota 429 outlasts the limit instead of bubbling up to Codex.
+  maxRetries?: number;
+  retryBaseMs?: number;
 }
 
 export class UpstreamError extends Error {
@@ -73,6 +80,60 @@ function describeFetchError(err: unknown): FetchErrorDetail {
     cause: e.cause?.message,
     code: e.cause?.code,
   };
+}
+
+// Statuses worth retrying: rate limits + transient upstream/gateway failures.
+// 429 is the big one — without proxy-side retry, Codex burns its own
+// `request_max_retries` and surfaces "exceeded retry limit, last status: 429".
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+function envInt(name: string, def: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (!raw) return def;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return def;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
+// How long to wait before the next attempt. Honors a numeric or HTTP-date
+// `Retry-After` header (capped so Codex doesn't time out waiting on us), else
+// exponential backoff with jitter.
+function retryDelayMs(res: Response | null, attempt: number, baseMs: number): number {
+  const CAP = 10_000;
+  if (res) {
+    const ra = res.headers.get("retry-after");
+    if (ra) {
+      const secs = Number(ra);
+      if (Number.isFinite(secs)) return Math.min(Math.max(secs, 0) * 1000, CAP);
+      const when = Date.parse(ra);
+      if (!Number.isNaN(when)) return Math.min(Math.max(when - Date.now(), 0), CAP);
+    }
+  }
+  const exp = baseMs * 2 ** attempt;
+  return Math.min(exp, 12_000) + Math.floor(Math.random() * 250);
+}
+
+// setTimeout that rejects (AbortError) if the request is cancelled mid-wait,
+// so a Codex cancel during backoff doesn't leave us sleeping.
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      const e = new Error("aborted");
+      e.name = "AbortError";
+      return reject(e);
+    }
+    const t = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(t);
+      const e = new Error("aborted");
+      e.name = "AbortError";
+      reject(e);
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function defaultErrorCode(status: number): string {
@@ -137,26 +198,33 @@ async function postUpstream(
   log.debug(`upstream POST ${url}`, { ...meta.summary, apiKey: redactKey(cfg.apiKey) });
   log.debug("upstream POST body", body);
 
-  const attempt = async (): Promise<Response> => {
-    const res = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal,
-    });
-    return res;
-  };
+  const maxRetries = cfg.maxRetries ?? envInt("MIMO2CODEX_UPSTREAM_MAX_RETRIES", 6, 0, 12);
+  const baseMs = cfg.retryBaseMs ?? envInt("MIMO2CODEX_UPSTREAM_RETRY_BASE_MS", 500, 50, 5_000);
+  const serialized = JSON.stringify(body);
 
-  let res: Response;
-  try {
-    res = await attempt();
-  } catch (err) {
-    if ((err as Error).name === "AbortError") throw err;
-    log.warn("upstream connect failed, retrying once", describeFetchError(err));
+  const doFetch = (): Promise<Response> =>
+    fetch(url, { method: "POST", headers, body: serialized, signal });
+
+  let attempt = 0;
+  for (;;) {
+    let res: Response;
     try {
-      res = await attempt();
-    } catch (err2) {
-      const detail = describeFetchError(err2);
+      res = await doFetch();
+    } catch (err) {
+      if ((err as Error).name === "AbortError") throw err;
+      // Network-level failure (connect refused / DNS / reset). Retry with
+      // backoff like a transient status, then give up with a 502.
+      if (attempt < maxRetries) {
+        const delay = retryDelayMs(null, attempt, baseMs);
+        log.warn(
+          `upstream connect failed, retry ${attempt + 1}/${maxRetries} in ${delay}ms`,
+          describeFetchError(err)
+        );
+        await abortableSleep(delay, signal);
+        attempt++;
+        continue;
+      }
+      const detail = describeFetchError(err);
       throw new UpstreamError({
         status: 502,
         code: "upstream_unreachable",
@@ -165,9 +233,24 @@ async function postUpstream(
           : `failed to reach upstream: ${detail.error}`,
       });
     }
-  }
 
-  if (!res.ok) {
+    if (res.ok) return res;
+
+    // Transient status (rate limit / gateway) → consume the body and retry so
+    // a brief 429 doesn't bubble up to Codex and break the session.
+    if (RETRYABLE_STATUSES.has(res.status) && attempt < maxRetries) {
+      const snippet = await readSnippet(res);
+      const delay = retryDelayMs(res, attempt, baseMs);
+      log.warn(
+        `upstream ${res.status} ${res.statusText}, retry ${attempt + 1}/${maxRetries} in ${delay}ms`,
+        { snippet: snippet?.slice(0, 200) }
+      );
+      await abortableSleep(delay, signal);
+      attempt++;
+      continue;
+    }
+
+    // Terminal failure: build the (possibly enhanced) error and throw.
     const snippet = await readSnippet(res);
     // Provider-specific enhancement runs first so dedicated rules (e.g. MiMo's
     // "webSearchEnabled is false" hint) keep winning over the generic
@@ -181,6 +264,12 @@ async function postUpstream(
         contextWindow: cfg.modelInfo?.contextWindow,
       });
     }
+    if (!enhanced) {
+      // Independent of contextOverflowMode — the malformed-field hint is a
+      // diagnostic, not a UX rewrite of a known-bad-prompt case. Surface it
+      // even when contextOverflowMode === "passthrough".
+      enhanced = detectMalformedJsonField({ status: res.status, snippet });
+    }
     const code = enhanced?.code ?? defaultErrorCode(res.status);
     const message = enhanced?.message ?? `upstream returned ${res.status}: ${snippet ?? "(no body)"}`;
     if (enhanced) {
@@ -193,6 +282,4 @@ async function postUpstream(
       bodySnippet: snippet,
     });
   }
-
-  return res;
 }

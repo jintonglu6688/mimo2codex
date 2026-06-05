@@ -2,6 +2,7 @@
   "title": "mimo2codex",
   "dashboard": "Dashboard",
   "codexEnable": "Codex Integration",
+  "sessions": "Session Manager",
   "providers": "Providers",
   "models": "Built-in Models",
   "logs": "Logs"

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B2F7A"/>
+      <stop offset="100%" stop-color="#4F6CFB"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0%" y1="0%" x2="60%" y2="60%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- Squircle background (rx ~ 25% of 256 = 64 for iOS-like rounding) -->
+  <rect x="0" y="0" width="256" height="256" rx="64" ry="64" fill="url(#bg)"/>
+  <!-- Subtle top-left highlight -->
+  <rect x="0" y="0" width="256" height="256" rx="64" ry="64" fill="url(#gloss)"/>
+  <!-- Letter group: m  2  c -->
+  <!-- "m" -->
+  <text x="62" y="172" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif"
+        font-size="120" font-weight="700" fill="#FFFFFF" text-anchor="middle">m</text>
+  <!-- "2" as bridge arrow: glyph drawn manually so the top sweeps right-down -->
+  <path d="M 108 110
+           Q 108 78, 140 78
+           Q 168 78, 168 104
+           Q 168 122, 150 138
+           L 108 178
+           L 168 178"
+        stroke="#FFFFFF" stroke-width="16" fill="none"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Tiny arrowhead at the right end of the 2's top curve, suggesting translation direction -->
+  <path d="M 162 88 L 172 78 L 162 70"
+        stroke="#FFFFFF" stroke-width="10" fill="none"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- "c" -->
+  <text x="200" y="172" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif"
+        font-size="120" font-weight="700" fill="#FFFFFF" text-anchor="middle">c</text>
+</svg>

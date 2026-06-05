@@ -2,6 +2,7 @@
   "banner": {
     "title": "新版本 v{{latest}} 可用（当前 v{{current}}）",
     "actionUpdate": "立即更新并重启",
+    "actionOpenDownload": "前往下载页",
     "actionShowCommand": "查看命令",
     "actionIgnore": "忽略此版本",
     "actionDismiss": "暂时关闭"
@@ -20,6 +21,7 @@
   "method": {
     "npm-global": "npm 全局安装（npm i -g mimo2codex@latest）",
     "git": "git 仓库（git pull + npm run build:all）",
+    "desktop": "桌面安装器（前往下载页拿新安装包升级）",
     "unknown": "未知（请手动更新）"
   },
   "command": {

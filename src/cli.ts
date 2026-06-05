@@ -87,6 +87,14 @@ OPTIONS
                           native CLI; on by default inside the Docker image).
                           env: MIMO2CODEX_AUTH=on. When on, the first start
                           prints a one-time bootstrap URL.
+      --log-body-mode <mode>
+                          persist request/response bodies in chat_logs:
+                          full | errors-only | off
+                          env: MIMO2CODEX_LOG_BODY_MODE
+      --log-retention-days <n>
+                          auto-delete logs older than <n> days on startup and
+                          periodically while running; use 0 to disable.
+                          env: MIMO2CODEX_LOG_RETENTION_DAYS
   -v, --verbose           log every request (env: MIMO2CODEX_VERBOSE=1)
   -V, --version           print version
   -h, --help              show this help
@@ -631,12 +639,31 @@ async function main(): Promise<void> {
     try {
       openDb(cfg.dataDir);
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error(
-        `error: failed to open admin database at ${cfg.dataDir}: ${(err as Error).message}\n` +
-          `Pass --no-admin to disable persistence, or --data-dir <path> to choose a writable location.`
+      // 启动期 sqlite 打开失败 → 优雅降级为 admin 关闭模式，而不是硬退（issue #30）。
+      // 触发场景：better-sqlite3 native binding 没法在当前 Node + 操作系统 + 安装
+      // 方式下加载（典型：pnpm 全局安装 + Windows + Node 22 没拿到对应 ABI
+      // 的 prebuilt 二进制，报 "Could not locate the bindings file"）。
+      // 代理核心（Codex ↔ Chat-Completions 翻译）本来就不依赖 DB —— 所有 DB
+      // 读取在 cfg.adminEnabled=false 时都已经短路（src/server.ts），所以这里
+      // 直接把开关关掉、继续启动比 process.exit(2) 让用户每次都得手敲
+      // --no-admin 体验好得多。
+      const msg = (err as Error).message;
+      const looksLikeBinding = /Could not locate the bindings file|NODE_MODULE_VERSION/i.test(
+        msg
       );
-      process.exit(2);
+      // eslint-disable-next-line no-console
+      console.warn(
+        `warning: admin database unavailable at ${cfg.dataDir}: ${msg}\n` +
+          (looksLikeBinding
+            ? "  → better-sqlite3 的 native binding 没能在当前 Node + 操作系统 + 安装方式下加载。\n" +
+              "    常见原因：pnpm 全局安装 + Windows + Node 22 没拿到对应 ABI 的 prebuilt 二进制。\n" +
+              "    可选方案： (a) 改用 npm 重装：npm i -g mimo2codex（postinstall 构建更可靠），\n" +
+              "                 (b) 继续以 admin 关闭模式运行（下方将自动继续），或\n" +
+              "                 (c) 显式 MIMO2CODEX_NO_ADMIN=1 永久消除该告警。\n"
+            : "  → 用 --no-admin / MIMO2CODEX_NO_ADMIN=1 消除该告警，或 --data-dir <path> 换可写位置。\n") +
+          "代理仍会启动，admin UI + 持久化已禁用 —— 核心 Codex ↔ Chat-Completions 翻译不受影响。"
+      );
+      cfg.adminEnabled = false;
     }
   }
 

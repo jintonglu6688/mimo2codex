@@ -296,6 +296,63 @@ describe("admin REST", () => {
     expect(providersText).not.toContain("apiKey");
   });
 
+  it("GET /admin/api/log-settings returns defaults for silent rewrite, body mode, and retention", async () => {
+    const r = await call("GET", "/admin/api/log-settings");
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({
+      silentRewrite: true,
+      cliOverride: null,
+      bodyMode: "full",
+      bodyModeCliOverride: null,
+      retentionDays: null,
+      retentionDaysCliOverride: null,
+      retentionDaysCliOverrideActive: false,
+    });
+  });
+
+  it("PUT /admin/api/log-settings updates body mode and retention", async () => {
+    const put = await call("PUT", "/admin/api/log-settings", {
+      silentRewrite: false,
+      bodyMode: "errors-only",
+      retentionDays: 14,
+    });
+    expect(put.status).toBe(200);
+    const get = await call("GET", "/admin/api/log-settings");
+    expect(get.status).toBe(200);
+    expect(get.json).toMatchObject({
+      silentRewrite: false,
+      bodyMode: "errors-only",
+      retentionDays: 14,
+      retentionDaysCliOverrideActive: false,
+    });
+  });
+
+  it("PUT /admin/api/log-settings validates the whole payload before writing", async () => {
+    const bad = await call("PUT", "/admin/api/log-settings", {
+      silentRewrite: false,
+      bodyMode: "bad-mode",
+    });
+    expect(bad.status).toBe(400);
+    const get = await call("GET", "/admin/api/log-settings");
+    expect(get.status).toBe(200);
+    expect(get.json).toMatchObject({
+      silentRewrite: true,
+      bodyMode: "full",
+      retentionDays: null,
+    });
+  });
+
+  it("GET /admin/api/log-settings marks a CLI-disabled retention override as read-only", async () => {
+    cfg.logRetentionDaysFromCli = null;
+    const r = await call("GET", "/admin/api/log-settings");
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({
+      retentionDays: null,
+      retentionDaysCliOverride: null,
+      retentionDaysCliOverrideActive: true,
+    });
+  });
+
   it("404 for unknown admin path", async () => {
     const r = await call("GET", "/admin/api/nope");
     expect(r.status).toBe(404);
@@ -506,5 +563,61 @@ describe("admin REST — Codex 启用 routes", () => {
     // mimo has a runtime in test cfg; deepseek does not.
     expect(body.targets.find((t) => t.providerId === "mimo")?.hasKey).toBe(true);
     expect(body.targets.find((t) => t.providerId === "deepseek")?.hasKey).toBe(false);
+  });
+});
+
+describe("admin REST — desktop signal routes (A2)", () => {
+  // The sentinel + signal pair is the channel from the admin web UI back into
+  // the Electron desktop main process. We only manipulate MIMO2CODEX_DESKTOP_PARENT
+  // here — actual file-watcher dispatch is covered in the desktop package.
+  const originalEnv = process.env.MIMO2CODEX_DESKTOP_PARENT;
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env.MIMO2CODEX_DESKTOP_PARENT;
+    else process.env.MIMO2CODEX_DESKTOP_PARENT = originalEnv;
+  });
+
+  it("GET /admin/api/desktop/sentinel returns inDesktop=false when env not set", async () => {
+    delete process.env.MIMO2CODEX_DESKTOP_PARENT;
+    const r = await call("GET", "/admin/api/desktop/sentinel");
+    expect(r.status).toBe(200);
+    expect((r.json as { inDesktop: boolean }).inDesktop).toBe(false);
+  });
+
+  it("GET /admin/api/desktop/sentinel returns inDesktop=true when MIMO2CODEX_DESKTOP_PARENT=1", async () => {
+    process.env.MIMO2CODEX_DESKTOP_PARENT = "1";
+    const r = await call("GET", "/admin/api/desktop/sentinel");
+    expect(r.status).toBe(200);
+    expect((r.json as { inDesktop: boolean }).inDesktop).toBe(true);
+  });
+
+  it("POST /admin/api/desktop/signal returns 404 when not in desktop", async () => {
+    delete process.env.MIMO2CODEX_DESKTOP_PARENT;
+    const r = await call("POST", "/admin/api/desktop/signal", { action: "open-settings" });
+    expect(r.status).toBe(404);
+    expect((r.json as { error: { code: string } }).error.code).toBe("not_in_desktop");
+  });
+
+  it("POST /admin/api/desktop/signal writes signal file in desktop mode", async () => {
+    process.env.MIMO2CODEX_DESKTOP_PARENT = "1";
+    const r = await call("POST", "/admin/api/desktop/signal", { action: "open-settings" });
+    expect(r.status).toBe(200);
+    expect((r.json as { ok: boolean }).ok).toBe(true);
+    // The signal file lives in cfg.dataDir
+    const { readFileSync, existsSync } = await import("node:fs");
+    const signalPath = join(dataDir, ".desktop-signal.json");
+    expect(existsSync(signalPath)).toBe(true);
+    const body = JSON.parse(readFileSync(signalPath, "utf8")) as {
+      action: string;
+      ts: number;
+    };
+    expect(body.action).toBe("open-settings");
+    expect(typeof body.ts).toBe("number");
+  });
+
+  it("POST /admin/api/desktop/signal rejects unknown actions", async () => {
+    process.env.MIMO2CODEX_DESKTOP_PARENT = "1";
+    const r = await call("POST", "/admin/api/desktop/signal", { action: "ship-it" });
+    expect(r.status).toBe(400);
+    expect((r.json as { error: { code: string } }).error.code).toBe("invalid_action");
   });
 });

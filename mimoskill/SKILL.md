@@ -10,6 +10,20 @@ This skill bundles two things:
 1. **Direct MiMo V2.5 access** — recipes for hitting `https://api.xiaomimimo.com/v1` for chat, vision, web search, TTS, and ASR (works whether or not the [mimo2codex](../README.md) proxy is running).
 2. **Workarounds for MiMo's gaps** — concrete scripts for the few things MiMo doesn't do, particularly **image generation** (which is what Codex's `/hatch` pet creation needs).
 
+## Hard rules (for Codex agents)
+
+These are non-negotiable when operating inside Codex pointed at this proxy:
+
+- **Never `pip install openai` and never `import openai`.** All scripts use only
+  the Python standard library (`urllib.request`, `json`, etc.). The OpenAI SDK
+  would fail auth or hit non-existent endpoints.
+- **Never assume image generation is available natively.** MiMo has no image-gen
+  endpoint. Use `scripts/generate_image.py` or `scripts/generate_pet.py`.
+- **Don't fight the sandbox.** If you need a Python dependency, check
+  `mimoskill/scripts/` first — most things are already there in stdlib.
+- **Non-vision model + image input → OCR it.** When the chat model can't see
+  images, run `scripts/ocr.py` — never ask the user to switch models.
+
 ## When to use
 
 Trigger this skill when:
@@ -160,6 +174,25 @@ bash mimoskill/scripts/install_pet.sh ~/Downloads/my-pet.png "axolotl-coder"
 
 # 3. Restart Codex completely and select the new pet from the pet menu
 ```
+
+### If the sandbox blocks the network call
+
+Codex's sandbox may prevent the scripts from reaching external APIs
+(Pollinations, OpenAI, Replicate, MiMo, etc.). When that happens, do **not**
+respond with "please install openai" or try to work around the sandbox.
+Tell the user to run the command in a regular terminal:
+
+> I can't reach the network from inside the sandbox. Please run the
+> following in a regular terminal (outside Codex), then tell me when it's
+> done and I'll continue:
+>
+>     python3 mimoskill/scripts/generate_pet.py --description "..." --out /tmp/pet.png
+>     bash mimoskill/scripts/install_pet.sh /tmp/pet.png "<pet-name>"
+>
+> No `pip install` is needed — the script uses only the Python standard
+> library.
+
+The same pattern applies for `generate_image.py`, `ocr.py`, and `mimo_chat.py`.
 
 `generate_pet.py` will print `[provider] auto → pollinations` so you know the free path is in use.
 

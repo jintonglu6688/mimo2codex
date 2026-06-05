@@ -8,6 +8,7 @@ import {
   Popover,
   Segmented,
   Space,
+  Switch,
   Table,
   Tag,
   Typography,
@@ -17,6 +18,7 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import {
   CheckCircleFilled,
+  DesktopOutlined,
   KeyOutlined,
   LogoutOutlined,
   SettingOutlined,
@@ -26,6 +28,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { api, type MappingRow, type ProviderInfo } from "../api/client";
 import DataDirManager from "./DataDirManager";
+import { CodexStatusHeader } from "./CodexStatusHeader";
 import {
   useAppConfig,
   type ThemeMode,
@@ -53,6 +56,15 @@ export function AppHeader() {
   const [messageApi, msgCtx] = message.useMessage();
   const [section, setSection] = useState<Section | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  // Whether this admin UI is running inside the Electron desktop shell — set
+  // by the /desktop/sentinel endpoint at mount. null while loading; once we
+  // know, we either show the "Open Desktop Settings" button (true) or not
+  // (false / fetch error). See package/desktop/src/signalWatcher.ts.
+  const [inDesktop, setInDesktop] = useState<boolean | null>(null);
+  // Quick "silence model-rewrite log" toggle. null while loading; cliOverride
+  // non-null when env MIMO2CODEX_SILENT_REWRITE forces it (toggle disabled).
+  const [silentRewrite, setSilentRewrite] = useState<boolean | null>(null);
+  const [silentCliOverride, setSilentCliOverride] = useState<boolean | null>(null);
 
   // Pull provider key status on mount + every 30s so the chip stays in sync
   // when users add keys / restart out-of-band. Failures are silent — chip
@@ -74,6 +86,65 @@ export function AppHeader() {
       clearInterval(tid);
     };
   }, []);
+
+  // Probe the desktop sentinel once on mount. The flag never changes during
+  // a process lifetime, so no polling is needed. Fetch errors → render
+  // nothing (treat as not-in-desktop), which is the safe default.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await api.desktopSentinel();
+        if (!cancelled) setInDesktop(r.inDesktop);
+      } catch {
+        if (!cancelled) setInDesktop(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load the silent-rewrite toggle state once on mount.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await api.logSettings();
+        if (!cancelled) {
+          setSilentRewrite(r.silentRewrite);
+          setSilentCliOverride(r.cliOverride);
+        }
+      } catch {
+        /* leave null → item hidden */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function toggleSilentRewrite() {
+    if (silentRewrite === null || silentCliOverride !== null) return;
+    const next = !silentRewrite;
+    try {
+      await api.setSilentRewrite(next);
+      setSilentRewrite(next);
+      messageApi.success(
+        t("silentRewrite.saved", { state: next ? t("silentRewrite.on") : t("silentRewrite.off") })
+      );
+    } catch (err) {
+      messageApi.error((err as Error).message);
+    }
+  }
+
+  async function openDesktopSettings() {
+    try {
+      await api.desktopSignal("open-settings");
+    } catch (err) {
+      messageApi.error((err as Error).message);
+    }
+  }
 
   async function saveSetting(key: string, value: string) {
     try {
@@ -103,6 +174,8 @@ export function AppHeader() {
       }}
     >
       {msgCtx}
+      {/* Live Codex status — sits with the other header status items. */}
+      <CodexStatusHeader />
       <KeyStatusIndicator
         providers={providers}
         missing={missing}
@@ -140,8 +213,31 @@ export function AppHeader() {
             { key: "providers", label: t("modal.providers") },
             { key: "mappings", label: t("modal.mappings") },
             { key: "dataDir", label: t("modal.dataDir") },
+            ...(silentRewrite !== null
+              ? [
+                  { type: "divider" as const },
+                  {
+                    key: "silentRewrite",
+                    disabled: silentCliOverride !== null,
+                    label: (
+                      <Space size={8} style={{ pointerEvents: "none" }}>
+                        <Switch size="small" checked={!!silentRewrite} />
+                        <span>{t("silentRewrite.label")}</span>
+                        {silentCliOverride !== null && (
+                          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                            ({t("silentRewrite.cliOverride")})
+                          </Typography.Text>
+                        )}
+                      </Space>
+                    ),
+                  },
+                ]
+              : []),
           ],
-          onClick: ({ key }) => setSection(key as Section),
+          onClick: ({ key }) => {
+            if (key === "silentRewrite") void toggleSilentRewrite();
+            else setSection(key as Section);
+          },
         }}
         trigger={["click"]}
       >
@@ -149,6 +245,19 @@ export function AppHeader() {
           {t("modal.openBtn")}
         </Button>
       </Dropdown>
+      {inDesktop && (
+        <Button
+          size="small"
+          icon={<DesktopOutlined />}
+          onClick={() => void openDesktopSettings()}
+          title={t("ui.desktopSettingsTooltip", {
+            defaultValue:
+              "Open the Electron Settings window (API keys, port, autostart, …)",
+          })}
+        >
+          {t("ui.desktopSettings", { defaultValue: "Desktop Settings" })}
+        </Button>
+      )}
       <UserMenu />
       <SectionModal section={section} onClose={() => setSection(null)} />
     </Header>

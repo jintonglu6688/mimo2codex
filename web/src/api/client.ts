@@ -193,6 +193,18 @@ export interface LogDetail extends LogRow {
   response_body: string | null;
 }
 
+export type LogBodyMode = "full" | "errors-only" | "off";
+
+export interface LogSettingsResponse {
+  silentRewrite: boolean;
+  cliOverride: boolean | null;
+  bodyMode: LogBodyMode;
+  bodyModeCliOverride: LogBodyMode | null;
+  retentionDays: number | null;
+  retentionDaysCliOverride: number | null;
+  retentionDaysCliOverrideActive: boolean;
+}
+
 export interface MappingRow {
   provider_id: string;
   client_model: string;
@@ -322,6 +334,59 @@ export interface CodexApplyResponse {
   restartRequired: boolean;
   historyId?: number;
   bundleUrl?: string | null;
+}
+
+export interface CodexSession {
+  id: string;
+  provider: string;
+  cwd: string;
+  title: string;
+  firstUserMessage: string;
+  createdAt: number;
+  updatedAt: number;
+  archived: boolean;
+  rolloutPath: string;
+  tokensUsed: number;
+}
+
+export interface CodexSessionsResponse {
+  localOnly: boolean;
+  dbPath: string | null;
+  available: boolean;
+  sessions: CodexSession[];
+  providers: string[];
+}
+
+export interface TranscriptItem {
+  kind: "message" | "reasoning" | "tool";
+  // message
+  role?: "user" | "assistant";
+  text?: string;
+  context?: boolean;
+  // tool
+  name?: string;
+  command?: string | null;
+  input?: string | null;
+  output?: string;
+  status?: string | null;
+}
+
+export interface SessionTranscript {
+  localOnly: boolean;
+  available: boolean;
+  title?: string;
+  cwd: string | null;
+  model: string | null;
+  items: TranscriptItem[];
+}
+
+export interface CodexMigrateResponse {
+  ok: boolean;
+  restartRequired: boolean;
+  id: string;
+  fromProvider: string;
+  toProvider: string;
+  backupDir: string;
 }
 
 export interface CodexHistoryRow {
@@ -543,12 +608,38 @@ export const api = {
     request<{ ok: boolean }>("PUT", "/thinking-state", { disabled }),
   setForceHighEffort: (forceHighEffort: boolean) =>
     request<{ ok: boolean }>("PUT", "/thinking-state", { forceHighEffort }),
+  visionFallback: () =>
+    request<{ enabled: boolean; model: string }>("GET", "/vision-fallback"),
+  setVisionFallback: (body: { enabled?: boolean; model?: string }) =>
+    request<{ ok: boolean }>("PUT", "/vision-fallback", body),
+  logSettings: () => request<LogSettingsResponse>("GET", "/log-settings"),
+  setSilentRewrite: (silentRewrite: boolean) =>
+    request<{ ok: boolean }>("PUT", "/log-settings", { silentRewrite }),
+  setLogSettings: (body: { bodyMode?: LogBodyMode; retentionDays?: number | null }) =>
+    request<{ ok: boolean }>("PUT", "/log-settings", body),
   codexState: () => request<CodexState>("GET", "/codex-state"),
   codexTargets: () => request<CodexTargetsResponse>("GET", "/codex-targets"),
   codexApply: (body: { providerId: string; modelId: string }) =>
     request<CodexApplyResponse>("POST", "/codex-apply", body),
   codexRestore: (ts: number) =>
     request<{ ok: boolean; restartRequired: boolean }>("POST", "/codex-restore", { ts }),
+  codexSessions: () => request<CodexSessionsResponse>("GET", "/codex-sessions"),
+  codexMigrateSession: (body: { id: string; toProvider: string }) =>
+    request<CodexMigrateResponse>("POST", "/codex-sessions/migrate", body),
+  codexSessionTranscript: (id: string) =>
+    request<SessionTranscript>(
+      "GET",
+      `/codex-sessions/transcript?id=${encodeURIComponent(id)}`
+    ),
+  codexRestart: () =>
+    request<{
+      ok: boolean;
+      supported: boolean;
+      platform: string;
+      wasRunning: boolean;
+      killed: number;
+      relaunched: boolean;
+    }>("POST", "/codex-restart"),
   deleteCodexBackup: (ts: number, force = false) =>
     request<{ ok: boolean; removed: number }>(
       "DELETE",
@@ -578,6 +669,18 @@ export const api = {
   dataDirPreview: (targetDir: string) =>
     request<DataDirPreview>("POST", "/data-dir/preview", { targetDir }),
   dataDirMigrateStreamUrl: () => `${BASE}/data-dir/migrate`,
+  // ── Desktop shell integration (v0.5.6) ───────────────────────────────────
+  // Tell the admin UI whether it's running inside the Electron desktop app.
+  // Returns inDesktop=true only when the sidecar was spawned by the desktop
+  // (MIMO2CODEX_DESKTOP_PARENT=1 env var). UI uses this to decide whether to
+  // expose the "Open Desktop Settings" button.
+  desktopSentinel: () =>
+    request<{ inDesktop: boolean }>("GET", "/desktop/sentinel"),
+  // Signal the Electron main process via a file watcher (see
+  // package/desktop/src/signalWatcher.ts). action="open-settings" pops the
+  // Settings window. Only succeeds when inDesktop=true.
+  desktopSignal: (action: "open-settings") =>
+    request<{ ok: boolean }>("POST", "/desktop/signal", { action }),
 };
 
 // /admin/api/health extended response. Existing fields stay; `maintenance` and
@@ -641,7 +744,7 @@ export interface UpdateStatusResponse {
   channel: "latest" | "beta";
   checkedAt: number | null;
   source: "cache" | "fresh" | "skipped";
-  method: "npm-global" | "git" | "unknown";
+  method: "npm-global" | "git" | "desktop" | "unknown";
   command: string;
   rootDir: string;
   preferences: {

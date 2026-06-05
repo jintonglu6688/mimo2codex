@@ -3,7 +3,13 @@ name: Publish to npm
 on:
   push:
     tags:
+      # `v*` covers npm releases (v0.4.5, v0.5.0-beta.1, ...).
+      # `!v*-desktop*` excludes desktop-only release tags (v0.4.5-desktop,
+      # v0.4.5-desktop.1, ...) — those are handled by build-desktop.yml and
+      # would fail the package.json-version check here anyway.
       - 'v*'
+      - '!v*-desktop'
+      - '!v*-desktop.*'
   workflow_dispatch:
     inputs:
       dist_tag:

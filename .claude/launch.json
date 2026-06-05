@@ -7,6 +7,19 @@
       "runtimeArgs": ["run", "dev"],
       "cwd": "docweb",
       "port": 5174
+    },
+    {
+      "name": "sidecar",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "port": 8788
+    },
+    {
+      "name": "admin-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "web",
+      "port": 5173
     }
   ]
 }

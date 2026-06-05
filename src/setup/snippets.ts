@@ -1,5 +1,6 @@
 import { byShortcut, PROVIDERS } from "../providers/registry.js";
 import type { ProviderId } from "../providers/types.js";
+import type { ProviderTomlPatch } from "../codex/tomlMerge.js";
 
 // Snippet target shared between CLI `print-config` / `print-cc-switch` and
 // the admin webui's Setup page. Kept as a flat shape so the webui can JSON
@@ -187,6 +188,32 @@ requires_openai_auth = true
 request_max_retries = 1
 `;
   return { authJson, configToml };
+}
+
+// The `[model_providers.<key>]` table block alone (header + body), shared by
+// the full-file snippet and the surgical merge. Single source of truth for
+// the provider field set so the two paths can never drift.
+export function providerTableBlock(cfg: HostPort, target: SnippetTarget): string {
+  return `[model_providers.${target.providerKey}]
+name = "${target.providerLabel}"
+base_url = "http://${cfg.host}:${cfg.port}/v1"
+wire_api = "responses"
+requires_openai_auth = true
+request_max_retries = 1`;
+}
+
+// Structured patch consumed by mergeCodexProviderToml — only the keys
+// mimo2codex manages, so a switch preserves the user's other config.toml
+// content (comments, [projects], [mcp_servers], model_reasoning_effort …).
+export function buildProviderTomlPatch(cfg: HostPort, target: SnippetTarget): ProviderTomlPatch {
+  return {
+    model: target.modelId,
+    modelProvider: target.providerKey,
+    modelContextWindow: target.contextWindow,
+    modelMaxOutputTokens: target.maxOutputTokens,
+    providerKey: target.providerKey,
+    providerBlock: providerTableBlock(cfg, target),
+  };
 }
 
 export function ccSwitchSnippet(cfg: HostPort, target: SnippetTarget): string {

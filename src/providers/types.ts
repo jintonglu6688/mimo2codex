@@ -50,6 +50,13 @@ export interface PreprocessCtx {
   // 上游真高强度思考。默认 false，仅在 admin UI 显式打开时生效。disableThinking=true 时
   // 此开关被忽略（关思考路径接管）。
   forceHighEffort?: boolean;
+  // The model id that's actually going to the upstream — after admin runtime
+  // override / alias / provider defaultModel fallback. Capability checks
+  // (vision, …) in reqToChat should follow THIS, not req.model (the client
+  // literal). Without it, e.g. client `mimo-v2.5-pro` aliased to upstream
+  // `mimo-v2.5` would still get images stripped because reqToChat would
+  // judge by the non-vision client id.
+  upstreamModel?: string;
 }
 
 export interface Provider {
@@ -79,6 +86,12 @@ export interface Provider {
   // — callers will then fall back to defaultBaseUrl.
   inferBaseUrlFromKey?(apiKey: string): string | null;
   resolveModel(clientModel: string): ProviderModel | null;
+  // Optional vision capability probe. ONLY providers that implement this take
+  // part in the multimodal (vision) fallback: the server skips the whole
+  // fallback when a provider omits it, so the feature stays MiMo-specific and
+  // never rewrites models for DeepSeek / generic providers. Returns whether the
+  // given model can accept image input.
+  supportsVision?(model: string): boolean;
   preprocessResponses(req: ResponsesRequest, ctx: PreprocessCtx): ChatRequest;
   preprocessChat(req: ChatRequest, ctx: PreprocessCtx): ChatRequest;
   // Lightweight hook for wireApi === "responses". Receives the original Codex

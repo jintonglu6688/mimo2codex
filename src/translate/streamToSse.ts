@@ -13,6 +13,7 @@ import {
   newResponseId,
 } from "../util/ids.js";
 import type { SseSink } from "../util/sse.js";
+import { log } from "../util/log.js";
 import { createInlineThinkSplitter } from "./minimaxCompat.js"; // minimax-compat
 
 export interface StreamToSseOpts {
@@ -23,6 +24,10 @@ export interface StreamToSseOpts {
    * 不会泄漏。MiniMax / GLM-thinking 等 inline-thinking 上游必开。
    */
   extractInlineThink?: boolean;
+  /**
+   * tool name → namespace name 映射（同 RespToResponsesOpts.namespaceMap）。
+   */
+  namespaceMap?: Map<string, string>;
 }
 
 interface ToolCallState {
@@ -62,11 +67,13 @@ class StreamState {
   // minimax-compat: 流式 <think>...</think> 切分器。null 时本路径关闭，
   // delta.content 原样进 message 通道（既有行为）。
   thinkSplitter: ReturnType<typeof createInlineThinkSplitter> | null = null;
+  namespaceMap: Map<string, string> | undefined;
 
   constructor(req: ResponsesRequest, opts: StreamToSseOpts) {
     this.req = req;
     this.model = req.model;
     this.exposeReasoning = opts.exposeReasoning;
+    this.namespaceMap = opts.namespaceMap;
     if (opts.extractInlineThink) {
       this.thinkSplitter = createInlineThinkSplitter();
     }
@@ -201,16 +208,19 @@ function openToolCall(
     argsEmitted: false,
   };
   state.toolCalls.set(index, tc);
+  const addedItem: ResponsesOutputItem & { namespace?: string } = {
+    id: itemId,
+    type: "function_call",
+    call_id: callId,
+    name: tc.name,
+    arguments: "",
+    status: "in_progress",
+  };
+  const ns = tc.name ? state.namespaceMap?.get(tc.name) : undefined;
+  if (ns) addedItem.namespace = ns;
   emit(sink, state, "response.output_item.added", {
     output_index: outputIndex,
-    item: {
-      id: itemId,
-      type: "function_call",
-      call_id: callId,
-      name: tc.name,
-      arguments: "",
-      status: "in_progress",
-    },
+    item: addedItem,
   });
   return tc;
 }
@@ -289,23 +299,64 @@ function finalizeActive(sink: SseSink, state: StreamState): void {
   state.activeAnnotations = [];
 }
 
+// Validate the accumulated tool-call arguments buffer is parseable JSON
+// before we emit it back to Codex. If the upstream truncated mid-stream
+// (finish_reason="length", thinking-budget exhaustion, network cancel …)
+// the buffer ends in invalid JSON. Persisting a broken `arguments` string
+// poisons the Codex session: every subsequent request carries it in
+// history and strict upstreams 400 on
+//   "unexpected end of data: line 1 column N (char N-1)"
+// when they re-parse the field. Salvage to "{}" and emit a clear warning;
+// reqToChat's outbound sanitizer is the secondary safety net for sessions
+// where this layer was bypassed (older proxy versions, etc.).
+function salvageToolCallArguments(
+  raw: string,
+  ctx: { name: string; callId: string; finishReason: string | null }
+): string {
+  if (raw.length === 0) return raw;
+  try {
+    JSON.parse(raw);
+    return raw;
+  } catch (err) {
+    const reason =
+      ctx.finishReason === "length"
+        ? "stream truncated by length limit — try raising max_completion_tokens or shrinking the conversation"
+        : ctx.finishReason
+          ? `stream finished with finish_reason="${ctx.finishReason}" before arguments completed`
+          : "stream ended before arguments completed";
+    log.warn(
+      `tool_call arguments not valid JSON; salvaged to "{}" — name="${ctx.name}" call_id="${ctx.callId}" ` +
+        `len=${raw.length} parse_err="${(err as Error).message}" cause: ${reason}. ` +
+        `preview=${JSON.stringify(raw.slice(0, 80))}`
+    );
+    return "{}";
+  }
+}
+
 function finalizeToolCalls(sink: SseSink, state: StreamState): void {
   // Emit done events for tool calls in the order they were opened.
   const ordered = Array.from(state.toolCalls.entries()).sort((a, b) => a[0] - b[0]);
   for (const [, tc] of ordered) {
+    const safeArgs = salvageToolCallArguments(tc.argsBuffer, {
+      name: tc.name,
+      callId: tc.callId,
+      finishReason: state.finishReason,
+    });
     emit(sink, state, "response.function_call_arguments.done", {
       item_id: tc.itemId,
       output_index: tc.outputIndex,
-      arguments: tc.argsBuffer,
+      arguments: safeArgs,
     });
-    const finalItem: ResponsesOutputItem = {
+    const finalItem: ResponsesOutputItem & { namespace?: string } = {
       id: tc.itemId,
       type: "function_call",
       call_id: tc.callId,
       name: tc.name,
-      arguments: tc.argsBuffer,
+      arguments: safeArgs,
       status: "completed",
     };
+    const ns = tc.name ? state.namespaceMap?.get(tc.name) : undefined;
+    if (ns) finalItem.namespace = ns;
     state.finalOutput.push(finalItem);
     emit(sink, state, "response.output_item.done", {
       output_index: tc.outputIndex,

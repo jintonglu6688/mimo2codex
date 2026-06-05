@@ -1,9 +1,19 @@
 {
   "title": "Codex Integration",
   "intro": "One-click switch the model Codex actually calls — a replacement for ccswitch. Two mechanisms are offered:",
+  "restart": {
+    "restart": "Restart Codex now",
+    "restartLater": "Not now",
+    "restartConfirmTitle": "Restart Codex to apply the change?",
+    "restartConfirmBody": "The config has been written to ~/.codex — Codex must restart to pick it up. Restart now? This force-closes Codex Desktop and relaunches it, so any in-progress turn will be interrupted.",
+    "restarted": "Codex restarted ({{killed}} processes) — it's relaunching now.",
+    "launched": "Codex wasn't running — launched it now.",
+    "restartNoop": "Couldn't find Codex Desktop to restart. Launch it manually.",
+    "restartUnsupported": "One-click restart isn't supported on this platform — restart Codex manually."
+  },
   "prereq": {
-    "title": "Prerequisites / manual config snippets",
-    "subtitle": "auth.json / config.toml / env vars / cc-switch — click to expand"
+    "title": "How it works + prerequisites / manual config snippets",
+    "subtitle": "two modes / auth.json / config.toml / env vars / cc-switch — click to expand"
   },
   "tabs": {
     "targets": "Targets",
@@ -51,6 +61,15 @@
     "forceHighSideEffect": "⚠️ Force-high is ON: mimo2codex injects reasoning_effort=\"high\" into every request (even when Codex didn't ask for reasoning). Side effects: (1) trivial requests (hi, single-file reads) also go through reasoning — more tokens, higher latency; (2) on some models 'high' equals 'max', so your bill can rise sharply. Enable only when you really need to see the thought process.",
     "hint": "Thinking ON/OFF: when OFF, every provider skips thinking (mimo / deepseek send thinking:{type:\"disabled\"}, sensenova / other generic send reasoning_effort:\"none\"). When ON, each provider follows its own default (most clients don't include reasoning effort for non-GPT-5 models, so the upstream may skip thinking on simple tasks). Force high reasoning effort: only available while Thinking is ON — if Codex didn't pass an effort, mimo2codex injects reasoning_effort=\"high\"; if Codex did pass one, that value is respected. Takes effect immediately (no restart).",
     "cliOverride": "Thinking ON/OFF is currently controlled by CLI flag (--disable-thinking) or env (MIMO2CODEX_DISABLE_THINKING). The switch is locked. Restart without those args to control via UI."
+  },
+  "visionFallback": {
+    "title": "Multimodal Fallback",
+    "scopeNote": "Currently only MiMo models are supported. Other providers/models are not supported yet.",
+    "statusOn": "Enabled: image requests auto-switch to vision model",
+    "statusOff": "Disabled",
+    "hint": "When enabled, if a request contains images but the current model doesn't support vision (e.g. mimo-v2.5-pro), automatically switch to the specified multimodal model (default: mimo-v2.5) to avoid images being silently dropped.",
+    "modelLabel": "Fallback model",
+    "modelPlaceholder": "e.g. mimo-v2.5"
   },
   "targets": {
     "title": "Available combinations",

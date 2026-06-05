@@ -18,6 +18,7 @@ import {
   DashboardOutlined,
   DatabaseOutlined,
   FileTextOutlined,
+  HistoryOutlined,
   UserOutlined,
 } from "@ant-design/icons";
 
@@ -33,6 +34,7 @@ import { Models } from "./pages/Models";
 import { Logs } from "./pages/logs";
 import { Providers } from "./pages/providers";
 import { CodexEnable } from "./pages/codex";
+import { Sessions } from "./pages/sessions";
 import { LoginPage } from "./pages/Login";
 import { BootstrapPage } from "./pages/Bootstrap";
 import { AccountPage } from "./pages/Account";
@@ -54,6 +56,7 @@ interface MenuEntry {
 interface MenuLabels {
   dashboard: string;
   codexEnable: string;
+  sessions: string;
   providers: string;
   models: string;
   logs: string;
@@ -62,6 +65,7 @@ interface MenuLabels {
 const MENU: MenuEntry[] = [
   { path: "/", key: "dashboard", icon: <DashboardOutlined />, element: <Dashboard /> },
   { path: "/codex", key: "codexEnable", icon: <CodeOutlined />, element: <CodexEnable /> },
+  { path: "/sessions", key: "sessions", icon: <HistoryOutlined />, element: <Sessions /> },
   { path: "/providers", key: "providers", icon: <AppstoreOutlined />, element: <Providers /> },
   { path: "/models", key: "models", icon: <DatabaseOutlined />, element: <Models /> },
   { path: "/logs", key: "logs", icon: <FileTextOutlined />, element: <Logs /> },

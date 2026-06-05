@@ -11,7 +11,13 @@ import {
   type BackupEntry,
 } from "./files.js";
 import { assertInsideCodexDir, authJsonPath, codexDir, configTomlPath } from "./paths.js";
-import { buildCcSwitchFiles, type HostPort, type SnippetTarget } from "../setup/snippets.js";
+import {
+  buildCcSwitchFiles,
+  buildProviderTomlPatch,
+  type HostPort,
+  type SnippetTarget,
+} from "../setup/snippets.js";
+import { mergeCodexProviderToml } from "./tomlMerge.js";
 
 const BACKUP_KEEP = 10;
 
@@ -42,9 +48,19 @@ export function applyCodex(target: SnippetTarget, hostPort: HostPort): ApplyResu
   const authBackup = backupFile(authJsonPath(), ts, { preserve });
   const tomlBackup = backupFile(configTomlPath(), ts, { preserve });
 
-  const { authJson, configToml } = buildCcSwitchFiles(hostPort, target);
+  const { authJson } = buildCcSwitchFiles(hostPort, target);
   atomicWrite(authJsonPath(), authJson);
-  atomicWrite(configTomlPath(), configToml);
+
+  // config.toml: when one already exists, surgically merge only the keys we
+  // manage so the user's other sections (comments, [projects], [mcp_servers],
+  // model_reasoning_effort …) survive the switch. A fresh install (no file)
+  // gets the rich first-run snippet with the alternatives comment.
+  const existingToml = readConfigTomlIfExists();
+  const tomlOut =
+    existingToml == null
+      ? buildCcSwitchFiles(hostPort, target).configToml
+      : mergeCodexProviderToml(existingToml, buildProviderTomlPatch(hostPort, target));
+  atomicWrite(configTomlPath(), tomlOut);
 
   pruneBackups(authJsonPath(), BACKUP_KEEP);
   pruneBackups(configTomlPath(), BACKUP_KEEP);
