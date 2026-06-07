@@ -17,7 +17,17 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 ---
 
-## v0.5.23 (upcoming)
+## v0.5.24 (upcoming)
+
+- **[new]** **上下文自动压缩**（issue #65 后续）：长会话每轮都把完整历史重发，一旦接近模型上下文上限，上游要么 400、要么 prefill 太慢导致断流。mimo2codex 现在会估算输入大小，超过**随模型窗口缩放**的 token 阈值（`contextWindow × 阈值`，**阈值默认 0.8**——例如 1M 窗口约 800k、256k 窗口约 205k）时，**把较旧的中段对话**经同一个模型总结成一条紧凑摘要，保留开头的 system 消息和最近若干轮原文。切分点一定落在干净的 `user` 边界，绝不拆散 tool_call/tool_result 配对；图片 base64 绝不喂给摘要调用；稳定的前缀会被缓存，避免每轮重复总结。尽力而为：摘要调用失败则原样保留历史。默认**开**；可用 `MIMO2CODEX_AUTO_COMPACT`（0=关）、`MIMO2CODEX_AUTO_COMPACT_THRESHOLD`，或绝对值 `MIMO2CODEX_AUTO_COMPACT_AT_TOKENS`（用于「对外报的窗口大于真实可用上限」的上游）调整——同样暴露为 admin 设置 `codex.autoCompactEnabled` / `codex.autoCompactThreshold` / `codex.autoCompactAtTokens`。压缩在 keepalive 已激活时进行，摘要往返不会重新引入静默连接。
+
+- **[fix]** **请求体上限可配置，上传超大图片不再断连**（issue #65）：请求体上限原本硬编码 16MB，超限会在上传途中 `destroy()` 套接字——Codex 看到的是「error sending request for url」而非干净错误。现在上限**默认 64MB 且可配置**（`MIMO2CODEX_MAX_REQUEST_BODY_MB`），超限会先把剩余 body 读完再返回客户端真正能收到的 **413**。
+
+- **[fix]** **大上下文 / 上传图片时的「stream disconnected before completion」**（issue #65）：代理过去要先 `await` 到上游的第一个字节、才会给 Codex 发数据，而 Node 的 `fetch`（undici）默认把这段等待上限定在 300s。一旦 prefill 很慢（会话很大，或一张 base64 图片把请求体撑大），就可能超过这个窗口——而此时 Codex 盯着一条没有任何字节的连接，触发了**它自己**的空闲超时。三处协同修复：(1) 现在无论是否配置代理，都安装一个**全局 undici dispatcher**，应用可配置的上游超时（默认 **10 分钟**，`0` = 关闭）——`MIMO2CODEX_UPSTREAM_HEADERS_TIMEOUT_MS` / `MIMO2CODEX_UPSTREAM_BODY_TIMEOUT_MS`；(2) header/body **超时不再触发重试风暴**——直接以清晰的 504 快速失败，而不是把几 MB 的请求体重发最多 6 次；(3) 两条流式路径现在都在 `await` 上游**之前**就 **flush SSE 头并起 keepalive**，让 Codex 在长 prefill 期间持续收到 `: keepalive` 注释。代价：一旦 200 SSE 流已经发出，上游的终态错误（如上下文超限的 400）会以 SSE `error` 事件下发，而不是 JSON 4xx。启动 banner 现在会显示当前生效的超时，带图片的流式请求也会打日志（含大致体积）。
+
+---
+
+## v0.5.23
 
 - **[new]** **Windows：隔离的 Codex CLI 启动器**（PR #64，感谢 @Kaiyuan GONG）：新增脚本 `scripts/codex-mimo-isolated.ps1`，让你用 **Codex CLI** 经 mimo2codex 接 MiMo，又**不动 Codex 桌面端常用的 `~/.codex`**。它用独立的 `CODEX_HOME=%USERPROFILE%\.codex-mimo`，首次运行时在那里写入最小的 `auth.json` + `config.toml`，若 `:8788` 没在监听就自动拉起代理，打印本地 API/admin 地址，然后把其余参数原样转发给 `codex`。脚本不硬编码 API key —— 用 `mimo2codex init` 配置。完整说明见 `doc/codex-cli-isolated-windows.zh.md`。
 
