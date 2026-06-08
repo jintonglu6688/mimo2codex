@@ -49,6 +49,66 @@ export interface ReleaseNote {
 // doc/tag-log.{md,zh.md} for users who want the full history.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "0.5.25",
+    date: "2026-06-08",
+    title: {
+      en: "Database housekeeping + Intel Mac fix",
+      zh: "数据库瘦身 + Intel Mac 修复",
+    },
+    summary: {
+      en: "Stop data.db from ballooning — one-click compaction, a size cap with auto-cleanup, and a database-size card on the dashboard. Also fixes the Intel macOS desktop crash.",
+      zh: "别再让 data.db 无限膨胀——一键压缩、按大小自动清理、Dashboard 大小卡片；另修复 Intel macOS 桌面端崩溃。",
+    },
+    highlights: [
+      {
+        kind: "new",
+        title: {
+          en: "One-click database cleanup & compaction",
+          zh: "一键清理与压缩数据库",
+        },
+        description: {
+          en: "data.db could balloon because logs were kept forever with full request/response bodies, and deleting rows never shrank the file (SQLite needs VACUUM). Now 'Clear old logs' / 'Clear all logs' auto-VACUUM right after deleting so the file actually shrinks, and the Logs page shows the live database size.",
+          zh: "data.db 会无限膨胀：日志永久保留且存完整请求/响应体，而删行也不会让文件变小（SQLite 需要 VACUUM）。现在「清理旧日志」/「清空全部」会在删除后自动 VACUUM，文件才真正变小，Logs 页也显示实时数据库大小。",
+        },
+        location: {
+          en: "Logs page → Clear old logs / Clear all · live database size shown at the top",
+          zh: "Logs 页 →「清理旧日志」/「清空全部」· 顶部显示实时数据库大小",
+        },
+      },
+      {
+        kind: "improved",
+        title: {
+          en: "Size cap + leaner defaults so it can't balloon again",
+          zh: "大小上限 + 更省空间的默认值，杜绝再次膨胀",
+        },
+        description: {
+          en: "Set a database size cap and background maintenance auto-trims the oldest logs and compacts (throttled). New installs default to 30-day retention + errors-only bodies; existing installs are left untouched so no logs are deleted without consent.",
+          zh: "可设数据库大小上限，后台维护自动清理最旧日志并压缩（有节流）。全新安装默认保留 30 天 + 只存出错请求体；已有安装保持原样，不擅自删除任何日志。",
+        },
+        location: {
+          en: "Logs page → Storage settings → Database size cap",
+          zh: "Logs 页 →「存储设置」→「数据库大小上限」",
+        },
+      },
+      {
+        kind: "fixed",
+        icon: <BugOutlined />,
+        title: {
+          en: "Desktop app now runs on Intel (x86_64) Macs",
+          zh: "桌面端修复在 Intel（x86_64）Mac 上的运行问题",
+        },
+        description: {
+          en: "The macOS x64 package shipped an arm64 better-sqlite3 module, so on Intel Macs the admin DB failed to load and /admin/ returned 404. The build now fetches the correct-arch native module, and a static arch check guards every build so the wrong one can't ship again.",
+          zh: "修复：桌面端修复在 Intel（x86_64）Mac 上的运行问题： Intel Mac 上 admin 数据库加载失败、/admin/ 返回 404。",
+        },
+        location: {
+          en: "Re-download the macOS Intel build from the download page",
+          zh: "请从下载页重新下载 macOS Intel 版",
+        },
+      },
+    ],
+  },
+  {
     version: "0.5.24",
     date: "2026-06-07",
     title: {

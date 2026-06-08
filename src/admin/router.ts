@@ -12,9 +12,13 @@ import {
   aggregateStats,
   aggregateTokensTimeseries,
   aggregateUsagePerUser,
+  deleteAllLogs,
   deleteLogsBefore,
+  diskFreeBytes,
+  getDbSizeBytes,
   getLogById,
   queryLogs,
+  vacuumDb,
 } from "../db/logs.js";
 import {
   deleteModel,
@@ -84,8 +88,10 @@ import {
 import {
   parseLogBodyMode,
   parseLogRetentionDays,
+  parseMaxDbSizeMb,
   resolveLogBodyMode,
   resolveLogRetentionDays,
+  resolveMaxDbSizeMb,
 } from "../logging/settings.js";
 import {
   callOpenAICompat,
@@ -1081,6 +1087,7 @@ async function handleApi(ctx: RouteContext): Promise<void> {
         retentionDays: resolveLogRetentionDays(cfg),
         retentionDaysCliOverride,
         retentionDaysCliOverrideActive,
+        maxDbSizeMb: resolveMaxDbSizeMb(),
       });
     }
     if (req.method === "PUT") {
@@ -1088,6 +1095,7 @@ async function handleApi(ctx: RouteContext): Promise<void> {
         silentRewrite?: unknown;
         bodyMode?: unknown;
         retentionDays?: unknown;
+        maxDbSizeMb?: unknown;
       }>(req);
       const writes: Array<{ key: string; value: string; logMessage: string }> = [];
       if (body.silentRewrite !== undefined) {
@@ -1130,6 +1138,18 @@ async function handleApi(ctx: RouteContext): Promise<void> {
           key: "logging.retentionDays",
           value: parsed === null ? "0" : String(parsed),
           logMessage: `logging.retentionDays set to ${parsed === null ? "disabled" : parsed} via admin UI`,
+        });
+      }
+      if (body.maxDbSizeMb !== undefined) {
+        if (body.maxDbSizeMb !== null && !Number.isInteger(body.maxDbSizeMb)) {
+          return sendError(res, 400, "invalid_body", "maxDbSizeMb must be null or an integer");
+        }
+        const parsedMax =
+          body.maxDbSizeMb === null ? null : parseMaxDbSizeMb(String(body.maxDbSizeMb));
+        writes.push({
+          key: "logging.maxDbSizeMb",
+          value: parsedMax === null ? "0" : String(parsedMax),
+          logMessage: `logging.maxDbSizeMb set to ${parsedMax === null ? "disabled" : parsedMax} via admin UI`,
         });
       }
       if (writes.length === 0) {
@@ -1268,10 +1288,63 @@ async function handleApi(ctx: RouteContext): Promise<void> {
   }
 
   if (req.method === "DELETE" && pathname === "/admin/api/logs") {
+    if (query.get("all") === "1") {
+      return sendJson(res, 200, { removed: deleteAllLogs() });
+    }
+    const keepDays = query.get("keepDays");
+    if (keepDays !== null) {
+      const n = Number(keepDays);
+      if (!Number.isFinite(n) || n < 0) {
+        return sendError(res, 400, "invalid_query", "keepDays must be a non-negative number");
+      }
+      const cutoff = Date.now() - n * 24 * 60 * 60 * 1000;
+      return sendJson(res, 200, { removed: deleteLogsBefore(cutoff) });
+    }
     const before = query.get("before");
-    if (!before) return sendError(res, 400, "missing_before", "?before=<ts_ms> required");
-    const removed = deleteLogsBefore(Number(before));
-    return sendJson(res, 200, { removed });
+    if (!before) {
+      return sendError(
+        res,
+        400,
+        "missing_param",
+        "one of ?all=1, ?keepDays=<n>, or ?before=<ts_ms> required"
+      );
+    }
+    return sendJson(res, 200, { removed: deleteLogsBefore(Number(before)) });
+  }
+
+  if (req.method === "GET" && pathname === "/admin/api/db/size") {
+    const size = getDbSizeBytes();
+    return sendJson(res, 200, {
+      totalBytes: size.total,
+      mainBytes: size.main,
+      walBytes: size.wal,
+      shmBytes: size.shm,
+    });
+  }
+
+  if (req.method === "POST" && pathname === "/admin/api/db/vacuum") {
+    const before = getDbSizeBytes().total;
+    // VACUUM rewrites the whole db into a temp file — it needs roughly a second
+    // copy of the db in free space. Pre-check so we fail with a clear message
+    // instead of a half-written SQLITE_FULL mid-rebuild.
+    const free = diskFreeBytes(cfg.dataDir);
+    if (free < before) {
+      return sendError(
+        res,
+        400,
+        "insufficient_disk",
+        `VACUUM needs ~${Math.ceil(before / 1024 / 1024)} MB free but only ${Math.floor(
+          free / 1024 / 1024
+        )} MB is available`
+      );
+    }
+    const { beforeBytes, afterBytes } = vacuumDb();
+    log.info(`admin VACUUM: ${beforeBytes} → ${afterBytes} bytes`);
+    return sendJson(res, 200, {
+      beforeBytes,
+      afterBytes,
+      freedBytes: beforeBytes - afterBytes,
+    });
   }
 
   // /admin/api/logs/:id — single log row including request_body + response_body.

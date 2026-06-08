@@ -1,5 +1,6 @@
 {
   "title": "聊天日志",
+  "dbSize": "数据库大小：{{size}}",
   "filter": {
     "providerLabel": "Provider",
     "modelLabel": "模型",
@@ -16,6 +17,7 @@
     "refresh": "刷新",
     "storage": "存储设置",
     "clearOld": "清理旧日志…",
+    "clearAll": "清空全部…",
     "exportCsv": "导出 CSV"
   },
   "storage": {
@@ -31,13 +33,25 @@
     "retention": {
       "label": "自动删除多少天之前的日志",
       "help": "留空表示关闭定期清理。"
+    },
+    "maxDbSize": {
+      "label": "数据库大小上限",
+      "help": "超过此大小时，后台维护会自动清理最旧日志并压缩。留空表示不限制。"
     }
   },
   "clearOld": {
     "title": "清理旧日志",
     "label": "删除多少天之前的日志",
-    "cutoff": "将删除 {{date}} 之前的所有日志",
-    "removed": "已删除 {{count}} 条"
+    "cutoff": "将删除 {{date}} 之前的所有日志（并随即压缩回收空间）",
+    "removed": "已删除 {{count}} 条",
+    "removedFreed": "已删除 {{count}} 条，回收 {{freed}} 空间"
+  },
+  "clearAll": {
+    "title": "清空全部日志",
+    "confirm": "将删除全部聊天日志（不可恢复），并随即压缩数据库回收空间。模型目录、设置等配置不受影响。确定继续？",
+    "ok": "清空",
+    "removed": "已删除 {{count}} 条",
+    "removedFreed": "已删除 {{count}} 条，回收 {{freed}} 空间"
   },
   "export": {
     "empty": "当前页没有日志可以导出"

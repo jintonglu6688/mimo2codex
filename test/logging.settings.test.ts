@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { closeDb, openDb } from "../src/db/index.js";
+import { closeDb, openDb, getDb } from "../src/db/index.js";
 import { insertLog, queryLogs } from "../src/db/logs.js";
 import type { Config } from "../src/config.js";
 import {
@@ -11,7 +11,7 @@ import {
   resolveLogRetentionDays,
   runLogMaintenance,
 } from "../src/logging/settings.js";
-import { setSetting } from "../src/db/settings.js";
+import { getSetting, setSetting } from "../src/db/settings.js";
 
 let dataDir: string;
 
@@ -52,9 +52,10 @@ afterEach(() => {
 });
 
 describe("logging settings", () => {
-  it("defaults to full body capture and no retention window", () => {
-    expect(resolveLogBodyMode(cfg)).toBe("full");
-    expect(resolveLogRetentionDays(cfg)).toBeNull();
+  it("fresh install defaults to errors-only bodies and a 30-day retention window", () => {
+    // issue #67: a brand-new db seeds opinionated defaults so it can't balloon.
+    expect(resolveLogBodyMode(cfg)).toBe("errors-only");
+    expect(resolveLogRetentionDays(cfg)).toBe(30);
   });
 
   it("uses settings values when no env override is present", () => {
@@ -141,7 +142,75 @@ describe("logging settings", () => {
 
     const result = runLogMaintenance(cfg, now);
 
-    expect(result).toEqual({ retentionDays: 7, removed: 1 });
+    expect(result).toMatchObject({ retentionDays: 7, removed: 1 });
     expect(queryLogs({ limit: 10 }).map((row) => row.request_id)).toEqual(["new"]);
+  });
+
+  it("size cap trims the oldest logs when db exceeds maxDbSizeMb", () => {
+    setSetting("logging.retentionDays", "off"); // isolate the size cap from age-based retention
+    const big = "x".repeat(8 * 1024);
+    for (let i = 0; i < 400; i++) {
+      insertLog({
+        ts: Date.UTC(2026, 0, 1) + i * 1000,
+        request_id: `bulk-${i}`,
+        provider_id: "mimo",
+        client_model: "m",
+        upstream_model: "m",
+        endpoint: "/v1/responses",
+        status_code: 200,
+        duration_ms: 1,
+        prompt_tokens: null,
+        completion_tokens: null,
+        total_tokens: null,
+        stream: false,
+        error_code: null,
+        error_snippet: null,
+        request_body: big,
+        response_body: big,
+        tool_call_count: null,
+      });
+    }
+    getDb().pragma("wal_checkpoint(TRUNCATE)");
+    setSetting("logging.maxDbSizeMb", "1"); // 1 MB cap, far below the ~6 MB db
+    const before = queryLogs({ limit: 10000 }).length;
+    const result = runLogMaintenance(cfg, Date.now());
+    const after = queryLogs({ limit: 10000 }).length;
+    expect(result.removedBySize).toBeGreaterThan(0);
+    expect(after).toBeLessThan(before);
+  });
+
+  it("auto-vacuums after deletions and throttles repeat vacuums within a day", () => {
+    const mkOld = (id: string, ts: number): void =>
+      insertLog({
+        ts,
+        request_id: id,
+        provider_id: "mimo",
+        client_model: "m",
+        upstream_model: "m",
+        endpoint: "/v1/responses",
+        status_code: 200,
+        duration_ms: 1,
+        prompt_tokens: null,
+        completion_tokens: null,
+        total_tokens: null,
+        stream: false,
+        error_code: null,
+        error_snippet: null,
+        request_body: null,
+        response_body: null,
+        tool_call_count: null,
+      });
+    mkOld("old-1", Date.UTC(2026, 3, 1));
+    setSetting("logging.retentionDays", "7");
+    const now = Date.UTC(2026, 4, 30);
+    const r1 = runLogMaintenance(cfg, now);
+    expect(r1.removed).toBe(1);
+    expect(r1.vacuumed).toBe(true);
+    expect(getSetting("logging.lastVacuumAt")).toBe(String(now));
+
+    mkOld("old-2", Date.UTC(2026, 3, 2));
+    const r2 = runLogMaintenance(cfg, now + 60 * 60 * 1000); // +1h
+    expect(r2.removed).toBe(1);
+    expect(r2.vacuumed).toBe(false); // throttled: < 24h since last vacuum
   });
 });

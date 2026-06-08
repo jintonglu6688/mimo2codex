@@ -14,6 +14,7 @@ import { execSync } from "node:child_process";
 import { cpSync, rmSync, mkdirSync, existsSync, writeFileSync, readdirSync, statSync, readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { detectNativeArch } from "./detectNativeArch.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
@@ -30,6 +31,9 @@ if (!existsSync(electronPkgJson)) {
 const ELECTRON_VERSION = JSON.parse(readFileSync(electronPkgJson, "utf8")).version;
 const arch = process.env.SIDECAR_ARCH || process.arch;
 const platform = process.env.SIDECAR_PLATFORM || process.platform;
+// Normalized build targets, shared by the install step and the arch check below.
+const targetArch = arch === "arm64" ? "arm64" : "x64";
+const targetPlatform = platform === "win32" ? "win32" : platform === "darwin" ? "darwin" : "linux";
 
 function clean() {
   rmSync(sidecarOut, { recursive: true, force: true });
@@ -62,13 +66,19 @@ function copyCliArtifacts() {
   // better-sqlite3@12 publishes electron-vXY prebuilds for all major platforms;
   // node-vXY prebuilds for win32-x64 are unreliable (and missing source-build
   // tooling on most Windows machines), so the electron-runtime path is safer.
-  const targetPlatform = platform === "win32" ? "win32" : platform === "darwin" ? "darwin" : "linux";
-  const targetArch = arch === "arm64" ? "arm64" : "x64";
   const sidecarEnv = {
     ...process.env,
     npm_config_target: ELECTRON_VERSION,
     npm_config_runtime: "electron",
     npm_config_disturl: "https://electronjs.org/headers",
+    // prebuild-install (better-sqlite3's binary fetcher) honors npm_config_arch
+    // / npm_config_platform — NOT the npm_config_target_* keys, which only
+    // node-gyp reads for source builds. Setting only target_* meant a cross-arch
+    // build (arm64 runner → x64 package) silently fell back to process.arch and
+    // fetched the wrong-arch prebuild — issue #69. Set both: arch/platform drives
+    // the prebuild download, target_* stays as a node-gyp source-build fallback.
+    npm_config_arch: targetArch,
+    npm_config_platform: targetPlatform,
     npm_config_target_arch: targetArch,
     npm_config_target_platform: targetPlatform,
     npm_config_build_from_source: "false",
@@ -89,6 +99,42 @@ function dirSizeMb(p) {
     else total += statSync(full).size;
   }
   return Math.round(total / (1024 * 1024));
+}
+
+function findBetterSqlite3Node() {
+  const base = resolve(sidecarOut, "node_modules/better-sqlite3");
+  const candidates = [
+    join(base, "build", "Release", "better_sqlite3.node"),
+    join(base, "prebuilds", `${targetPlatform}-${targetArch}`, "better-sqlite3.node"),
+    join(base, "prebuilds", `${targetPlatform}-${targetArch}`, "node.napi.node"),
+  ];
+  return candidates.find(existsSync) ?? null;
+}
+
+// Static arch check — reads the native module's header (Mach-O/PE/ELF) and
+// asserts it matches the build target. Unlike the smoke test below, this works
+// for cross-arch builds too (we can't *run* a foreign binary, but we can read
+// its header), so it catches the issue #69 class of bug in CI instead of
+// shipping a wrong-arch module to users.
+function verifyNativeArch() {
+  const nodeFile = findBetterSqlite3Node();
+  if (!nodeFile) {
+    throw new Error(
+      `[sidecar] better-sqlite3 native module not found under ${sidecarOut}.\n` +
+      `The prod-deps install step likely failed to fetch a prebuild.`
+    );
+  }
+  const detected = detectNativeArch(readFileSync(nodeFile));
+  if (detected !== targetArch) {
+    throw new Error(
+      `[sidecar] ARCH MISMATCH — better-sqlite3 native module is "${detected}" but ` +
+      `the build target is "${targetArch}".\n` +
+      `File: ${nodeFile}\n` +
+      `This is the issue #69 bug (e.g. an arm64 module shipped inside the x64 ` +
+      `package). Check that npm_config_arch actually reached prebuild-install.`
+    );
+  }
+  console.log(`[sidecar] native arch OK — better-sqlite3 is ${detected} (target ${targetArch})`);
 }
 
 function smokeTestWithElectron() {
@@ -131,6 +177,7 @@ async function main() {
   clean();
   buildCli();
   copyCliArtifacts();
+  verifyNativeArch();
   smokeTestWithElectron();
   writeFileSync(resolve(sidecarOut, "SIDECAR_INFO.json"), JSON.stringify({
     runtime: "electron",

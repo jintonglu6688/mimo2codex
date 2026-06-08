@@ -1,6 +1,6 @@
 import type { Config } from "../config.js";
-import { deleteLogsBefore } from "../db/logs.js";
-import { getSetting } from "../db/settings.js";
+import { deleteLogsBefore, deleteOldestLogs, getDbSizeBytes, vacuumDb } from "../db/logs.js";
+import { getSetting, setSetting } from "../db/settings.js";
 
 export type LogBodyMode = "full" | "errors-only" | "off";
 
@@ -59,17 +59,64 @@ export function applyLogBodyMode(
   return bodies;
 }
 
-export function runLogMaintenance(
-  cfg: Config,
-  now = Date.now()
-): { retentionDays: number | null; removed: number } {
-  const retentionDays = resolveLogRetentionDays(cfg);
-  if (!cfg.adminEnabled || retentionDays === null) {
-    return { retentionDays, removed: 0 };
+const DAY_MS = 24 * 60 * 60 * 1000;
+const VACUUM_THROTTLE_MS = DAY_MS; // at most one automatic vacuum per day
+
+export function parseMaxDbSizeMb(raw: string | null | undefined): number | null {
+  if (raw == null) return null;
+  const n = raw.trim().toLowerCase();
+  if (n === "" || n === "0" || n === "off" || n === "false") return null;
+  const v = Number(n);
+  if (!Number.isInteger(v) || v < 1) return null;
+  return v;
+}
+
+export function resolveMaxDbSizeMb(): number | null {
+  try {
+    return parseMaxDbSizeMb(getSetting("logging.maxDbSizeMb"));
+  } catch {
+    return null;
   }
-  const cutoff = now - retentionDays * 24 * 60 * 60 * 1000;
-  return {
-    retentionDays,
-    removed: deleteLogsBefore(cutoff),
-  };
+}
+
+export interface LogMaintenanceResult {
+  retentionDays: number | null;
+  removed: number;
+  removedBySize: number;
+  vacuumed: boolean;
+}
+
+// Auto-vacuum is throttled so a large db isn't rebuilt on every 6-hour tick.
+function shouldAutoVacuum(now: number): boolean {
+  const last = Number(getSetting("logging.lastVacuumAt"));
+  if (!Number.isFinite(last) || last <= 0) return true;
+  return now - last >= VACUUM_THROTTLE_MS;
+}
+
+export function runLogMaintenance(cfg: Config, now = Date.now()): LogMaintenanceResult {
+  const retentionDays = resolveLogRetentionDays(cfg);
+  if (!cfg.adminEnabled) {
+    return { retentionDays, removed: 0, removedBySize: 0, vacuumed: false };
+  }
+  // 1. Age-based retention.
+  let removed = 0;
+  if (retentionDays !== null) {
+    removed = deleteLogsBefore(now - retentionDays * DAY_MS);
+  }
+  // 2. Hard size ceiling (issue #67): trim the oldest half whenever the db
+  //    blows past maxDbSizeMb, regardless of age. Best-effort — converges over
+  //    successive maintenance ticks.
+  let removedBySize = 0;
+  const maxMb = resolveMaxDbSizeMb();
+  if (maxMb !== null && getDbSizeBytes().total > maxMb * 1024 * 1024) {
+    removedBySize = deleteOldestLogs(0.5);
+  }
+  // 3. Reclaim disk after meaningful deletions, throttled to once a day.
+  let vacuumed = false;
+  if (removed + removedBySize > 0 && shouldAutoVacuum(now)) {
+    vacuumDb();
+    setSetting("logging.lastVacuumAt", String(now));
+    vacuumed = true;
+  }
+  return { retentionDays, removed, removedBySize, vacuumed };
 }

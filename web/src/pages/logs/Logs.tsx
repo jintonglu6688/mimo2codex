@@ -25,10 +25,12 @@ import {
   ReloadOutlined,
   DeleteOutlined,
   SettingOutlined,
+  ClearOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import {
   api,
+  type DbSizeResponse,
   type LogBodyMode,
   type LogDetail,
   type LogSettingsResponse,
@@ -38,6 +40,7 @@ import {
 import { PageTour } from "../../components/PageTour";
 import { BodyBlock } from "./BodyBlock";
 import { StructuredDetail } from "./StructuredDetail";
+import { formatBytes } from "../../utils/format";
 
 const PAGE_SIZE = 100;
 
@@ -77,6 +80,7 @@ export function Logs() {
   const [modal, modalCtx] = Modal.useModal();
   const location = useLocation();
   const [logs, setLogs] = useState<LogRow[]>([]);
+  const [dbSize, setDbSize] = useState<DbSizeResponse | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [provider, setProvider] = useState<string>("");
   const [model, setModel] = useState<string>("");
@@ -101,6 +105,7 @@ export function Logs() {
   const [logSettingsForm] = Form.useForm<{
     bodyMode: LogBodyMode;
     retentionDays: number | null;
+    maxDbSizeMb: number | null;
   }>();
 
   async function loadProviders() {
@@ -124,6 +129,8 @@ export function Logs() {
         offset: page * PAGE_SIZE,
       });
       setLogs(r.logs);
+      // Refresh the db-size readout alongside the list (best-effort).
+      api.dbSize().then(setDbSize).catch(() => {});
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -180,6 +187,7 @@ export function Logs() {
       logSettingsForm.setFieldsValue({
         bodyMode: settings.bodyMode,
         retentionDays: settings.retentionDays,
+        maxDbSizeMb: settings.maxDbSizeMb,
       });
       setLogSettingsOpen(true);
     } catch (err) {
@@ -195,6 +203,7 @@ export function Logs() {
       await api.setLogSettings({
         bodyMode: values.bodyMode,
         retentionDays: values.retentionDays ?? null,
+        maxDbSizeMb: values.maxDbSizeMb ?? null,
       });
       messageApi.success(t("storage.saved"));
       setLogSettingsOpen(false);
@@ -247,7 +256,48 @@ export function Logs() {
         const before = Date.now() - days * 24 * 60 * 60 * 1000;
         try {
           const r = await api.deleteLogsBefore(before);
-          messageApi.success(t("clearOld.removed", { count: r.removed }));
+          // Reclaim disk right after deleting — VACUUM is best-effort (e.g. low
+          // free disk), the deletion already succeeded either way.
+          let freed = 0;
+          try {
+            freed = (await api.vacuumDb()).freedBytes;
+          } catch {
+            /* best-effort */
+          }
+          messageApi.success(
+            freed > 0
+              ? t("clearOld.removedFreed", { count: r.removed, freed: formatBytes(freed) })
+              : t("clearOld.removed", { count: r.removed })
+          );
+          await load();
+        } catch (err) {
+          setError((err as Error).message);
+        }
+      },
+    });
+  }
+
+  function openClearAll() {
+    modal.confirm({
+      title: t("clearAll.title"),
+      icon: <ClearOutlined />,
+      content: t("clearAll.confirm"),
+      okText: t("clearAll.ok"),
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const r = await api.clearAllLogs();
+          let freed = 0;
+          try {
+            freed = (await api.vacuumDb()).freedBytes;
+          } catch {
+            /* best-effort */
+          }
+          messageApi.success(
+            freed > 0
+              ? t("clearAll.removedFreed", { count: r.removed, freed: formatBytes(freed) })
+              : t("clearAll.removed", { count: r.removed })
+          );
           await load();
         } catch (err) {
           setError((err as Error).message);
@@ -418,9 +468,24 @@ export function Logs() {
     <>
       {msgCtx}
       {modalCtx}
-      <Typography.Title level={2} style={{ marginTop: 0 }}>
-        {t("title")}
-      </Typography.Title>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 8,
+        }}
+      >
+        <Typography.Title level={2} style={{ marginTop: 0 }}>
+          {t("title")}
+        </Typography.Title>
+        {dbSize && (
+          <Typography.Text type="secondary">
+            {t("dbSize", { size: formatBytes(dbSize.totalBytes) })}
+          </Typography.Text>
+        )}
+      </div>
 
       {error && (
         <Alert
@@ -518,6 +583,13 @@ export function Logs() {
                     onClick={openClearOld}
                   >
                     {t("action.clearOld")}
+                  </Button>
+                  <Button
+                    danger
+                    icon={<ClearOutlined />}
+                    onClick={openClearAll}
+                  >
+                    {t("action.clearAll")}
                   </Button>
                 </Space>
               </span>
@@ -648,7 +720,7 @@ export function Logs() {
           <Form
             form={logSettingsForm}
             layout="vertical"
-            initialValues={{ bodyMode: "full", retentionDays: null }}
+            initialValues={{ bodyMode: "full", retentionDays: null, maxDbSizeMb: null }}
           >
             <Form.Item label={t("storage.bodyMode.label")} name="bodyMode">
               <Select
@@ -674,6 +746,13 @@ export function Logs() {
                 style={{ width: "100%" }}
                 disabled={logSettings?.retentionDaysCliOverrideActive}
               />
+            </Form.Item>
+            <Form.Item
+              label={t("storage.maxDbSize.label")}
+              name="maxDbSizeMb"
+              extra={t("storage.maxDbSize.help")}
+            >
+              <InputNumber min={1} style={{ width: "100%" }} addonAfter="MB" />
             </Form.Item>
           </Form>
         </Space>

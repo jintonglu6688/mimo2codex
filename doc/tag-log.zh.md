@@ -17,6 +17,14 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 ---
 
+## v0.5.25 (upcoming)
+
+- **[new]** **数据库瘦身——一键清理 + VACUUM、大小可见、自动维护**（issue #67）：`data.db` 会无限膨胀（有用户涨到 6 GB），因为默认**完整**保存请求/响应体且永不清理，而删日志也不还磁盘（SQLite 删行只把空闲页留在文件里，要 `VACUUM` 才缩）。本次新增：(1) Logs 页**「清理旧日志」/「清空全部」**会在删除后**自动 VACUUM**（文件才真正变小，而不只是释放内部页），Logs 页顶部显示**实时数据库大小**；(2) **按大小阈值自动维护**——设置 `logging.maxDbSizeMb` 后，每 6 小时维护会清理最旧日志并做节流 VACUUM（≤ 每天一次）；(3) **仅对全新安装启用更省空间的默认值**——保留 30 天 + 只存出错请求体，已有安装迁移为显式 `off`/`full`，升级绝不删任何人的历史日志或改变捕获方式。新增端点：`GET /admin/api/db/size`、`POST /admin/api/db/vacuum`（带可用磁盘预检）、`DELETE /admin/api/logs?all=1|keepDays=<n>`。
+
+- **[fix]** **桌面端在 Intel（x86_64）macOS 上崩溃——admin UI 404**（issue #69）：macOS 的 **x64** 安装包里打进了 **arm64** 的 `better-sqlite3` 原生模块，于是 Intel Mac 上 sidecar 加载失败（`incompatible architecture`），admin 数据库不可用，admin 路由从未注册，所有 `/admin/` 请求都 404。根因：sidecar 构建传的是 `npm_config_target_arch`/`_platform`，但 **prebuild-install**（better-sqlite3 下载预编译二进制的工具）只认 `npm_config_arch`/`npm_config_platform`——于是交叉构建（arm64 CI runner → x64 包）静默 fallback 到 runner 的架构，下载了错误架构的 prebuild。只有 macOS x64 受影响（Windows x64 / macOS arm64 都是同架构构建，fallback 碰巧正确）。两处修复：(1) `build-sidecar.mjs` 现在设置 `npm_config_arch`/`npm_config_platform`（保留 `target_*` 作为 node-gyp 源码编译兜底）；(2) 新增**静态架构校验**（`scripts/detectNativeArch.mjs`，解析 Mach-O/PE/ELF 头），**每次**构建都跑——包括过去会跳过可执行 smoke test 的交叉构建——错误架构的模块现在会让 CI 失败，而不是发布给用户。
+
+---
+
 ## v0.5.24 (upcoming)
 
 - **[new]** **上下文自动压缩**（issue #65 后续）：长会话每轮都把完整历史重发，一旦接近模型上下文上限，上游要么 400、要么 prefill 太慢导致断流。mimo2codex 现在会估算输入大小，超过**随模型窗口缩放**的 token 阈值（`contextWindow × 阈值`，**阈值默认 0.8**——例如 1M 窗口约 800k、256k 窗口约 205k）时，**把较旧的中段对话**经同一个模型总结成一条紧凑摘要，保留开头的 system 消息和最近若干轮原文。切分点一定落在干净的 `user` 边界，绝不拆散 tool_call/tool_result 配对；图片 base64 绝不喂给摘要调用；稳定的前缀会被缓存，避免每轮重复总结。尽力而为：摘要调用失败则原样保留历史。默认**开**；可用 `MIMO2CODEX_AUTO_COMPACT`（0=关）、`MIMO2CODEX_AUTO_COMPACT_THRESHOLD`，或绝对值 `MIMO2CODEX_AUTO_COMPACT_AT_TOKENS`（用于「对外报的窗口大于真实可用上限」的上游）调整——同样暴露为 admin 设置 `codex.autoCompactEnabled` / `codex.autoCompactThreshold` / `codex.autoCompactAtTokens`。压缩在 keepalive 已激活时进行，摘要往返不会重新引入静默连接。

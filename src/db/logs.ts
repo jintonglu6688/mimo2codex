@@ -1,3 +1,4 @@
+import { statSync, statfsSync } from "node:fs";
 import { getDb } from "./index.js";
 
 export interface ChatLogEntry {
@@ -248,6 +249,75 @@ export function aggregateStats(range: string): { since: number; rows: StatsRow[]
 export function deleteLogsBefore(ts: number): number {
   const info = getDb().prepare("DELETE FROM chat_logs WHERE ts < ?").run(ts);
   return info.changes;
+}
+
+export function deleteAllLogs(): number {
+  return getDb().prepare("DELETE FROM chat_logs").run().changes;
+}
+
+// Delete the oldest `fraction` (0..1) of rows by timestamp. Used by the
+// size-cap maintenance pass (issue #67). Returns the number of rows removed.
+export function deleteOldestLogs(fraction: number): number {
+  const f = Math.max(0, Math.min(1, fraction));
+  const total = (
+    getDb().prepare("SELECT COUNT(*) AS c FROM chat_logs").get() as { c: number }
+  ).c;
+  const toDelete = Math.floor(total * f);
+  if (toDelete <= 0) return 0;
+  return getDb()
+    .prepare(
+      "DELETE FROM chat_logs WHERE id IN (SELECT id FROM chat_logs ORDER BY ts ASC LIMIT ?)"
+    )
+    .run(toDelete).changes;
+}
+
+export interface DbSize {
+  main: number;
+  wal: number;
+  shm: number;
+  total: number;
+}
+
+// On-disk size of the sqlite database, including the WAL and shared-memory
+// sidecar files. `getDb().name` is the absolute path to the main db file.
+export function getDbSizeBytes(): DbSize {
+  const dbPath = getDb().name;
+  const sizeOf = (p: string): number => {
+    try {
+      return statSync(p).size;
+    } catch {
+      return 0;
+    }
+  };
+  const main = sizeOf(dbPath);
+  const wal = sizeOf(`${dbPath}-wal`);
+  const shm = sizeOf(`${dbPath}-shm`);
+  return { main, wal, shm, total: main + wal + shm };
+}
+
+// Reclaim free pages back to the OS. SQLite's DELETE only moves pages onto the
+// freelist — the file never shrinks until VACUUM rewrites it (the root reason a
+// 6 GB data.db stayed 6 GB after deleting logs, issue #67). Must run outside a
+// transaction. Returns on-disk size before/after.
+export function vacuumDb(): { beforeBytes: number; afterBytes: number } {
+  const beforeBytes = getDbSizeBytes().total;
+  getDb().exec("VACUUM");
+  getDb().pragma("wal_checkpoint(TRUNCATE)");
+  const afterBytes = getDbSizeBytes().total;
+  return { beforeBytes, afterBytes };
+}
+
+// Free space (bytes) on the filesystem holding `dir`. Used to pre-check that
+// VACUUM — which needs roughly a second copy of the db — won't run out of
+// space. Returns Infinity when statfsSync is unavailable so a missing API
+// never blocks the vacuum.
+export function diskFreeBytes(dir: string): number {
+  try {
+    const s = statfsSync(dir);
+    return s.bavail * s.bsize;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
 }
 
 export interface ErrorBucket {

@@ -1,5 +1,6 @@
 {
   "title": "Chat Logs",
+  "dbSize": "Database size: {{size}}",
   "filter": {
     "providerLabel": "Provider",
     "modelLabel": "Model",
@@ -16,6 +17,7 @@
     "refresh": "Refresh",
     "storage": "Storage settings",
     "clearOld": "Clear old logs…",
+    "clearAll": "Clear all…",
     "exportCsv": "Export CSV"
   },
   "storage": {
@@ -31,13 +33,25 @@
     "retention": {
       "label": "Auto-delete logs older than (days)",
       "help": "Leave empty to disable scheduled cleanup."
+    },
+    "maxDbSize": {
+      "label": "Database size cap",
+      "help": "When exceeded, background maintenance auto-trims the oldest logs and compacts the db. Leave empty for no cap."
     }
   },
   "clearOld": {
     "title": "Clear old logs",
     "label": "Delete logs older than (days)",
-    "cutoff": "Will delete all logs before {{date}}",
-    "removed": "Removed {{count}} entries"
+    "cutoff": "Will delete all logs before {{date}} (and compact to reclaim space)",
+    "removed": "Removed {{count}} entries",
+    "removedFreed": "Removed {{count}} entries, reclaimed {{freed}}"
+  },
+  "clearAll": {
+    "title": "Clear all logs",
+    "confirm": "This deletes every chat log (cannot be undone) and then compacts the database to reclaim space. Model catalog, settings and other config are unaffected. Continue?",
+    "ok": "Clear all",
+    "removed": "Removed {{count}} entries",
+    "removedFreed": "Removed {{count}} entries, reclaimed {{freed}}"
   },
   "export": {
     "empty": "Nothing to export on this page"

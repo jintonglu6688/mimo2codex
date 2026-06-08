@@ -1708,9 +1708,16 @@ export function startServer(cfg: Config): Server {
   if (cfg.adminEnabled) {
     const maintain = () => {
       const result = runLogMaintenance(cfg);
-      if (result.removed > 0) {
+      if (result.removed > 0 || result.removedBySize > 0) {
+        const parts: string[] = [];
+        if (result.removed > 0) {
+          parts.push(`${result.removed} rows older than ${result.retentionDays} day(s)`);
+        }
+        if (result.removedBySize > 0) {
+          parts.push(`${result.removedBySize} oldest rows over the size cap`);
+        }
         log.info(
-          `log maintenance removed ${result.removed} rows older than ${result.retentionDays} day(s)`
+          `log maintenance removed ${parts.join(" + ")}${result.vacuumed ? ", then vacuumed the db" : ""}`
         );
       }
     };

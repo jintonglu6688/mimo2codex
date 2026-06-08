@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { closeDb, openDb } from "../src/db/index.js";
 import { handleAdmin } from "../src/admin/router.js";
 import type { Config } from "../src/config.js";
-import { insertLog } from "../src/db/logs.js";
+import { insertLog, type ChatLogEntry } from "../src/db/logs.js";
 
 let dataDir: string;
 let server: Server;
@@ -200,9 +200,9 @@ describe("admin REST", () => {
     expect(r.json).toMatchObject({
       silentRewrite: true,
       cliOverride: null,
-      bodyMode: "full",
+      bodyMode: "errors-only",
       bodyModeCliOverride: null,
-      retentionDays: null,
+      retentionDays: 30,
       retentionDaysCliOverride: null,
       retentionDaysCliOverrideActive: false,
     });
@@ -235,8 +235,8 @@ describe("admin REST", () => {
     expect(get.status).toBe(200);
     expect(get.json).toMatchObject({
       silentRewrite: true,
-      bodyMode: "full",
-      retentionDays: null,
+      bodyMode: "errors-only",
+      retentionDays: 30,
     });
   });
 
@@ -249,6 +249,73 @@ describe("admin REST", () => {
       retentionDaysCliOverride: null,
       retentionDaysCliOverrideActive: true,
     });
+  });
+
+  function addLog(over: Partial<ChatLogEntry> = {}): void {
+    insertLog({
+      ts: Date.now(),
+      request_id: null,
+      provider_id: "mimo",
+      client_model: "m",
+      upstream_model: "m",
+      endpoint: "/v1/responses",
+      status_code: 200,
+      duration_ms: 1,
+      prompt_tokens: null,
+      completion_tokens: null,
+      total_tokens: null,
+      stream: false,
+      error_code: null,
+      error_snippet: null,
+      request_body: null,
+      response_body: null,
+      tool_call_count: null,
+      ...over,
+    });
+  }
+
+  it("GET /admin/api/db/size returns byte counts for the database files", async () => {
+    const r = await call("GET", "/admin/api/db/size");
+    expect(r.status).toBe(200);
+    const j = r.json as { totalBytes: number; mainBytes: number; walBytes: number };
+    expect(j.totalBytes).toBeGreaterThan(0);
+    expect(typeof j.mainBytes).toBe("number");
+    expect(typeof j.walBytes).toBe("number");
+  });
+
+  it("DELETE /admin/api/logs?all=1 clears every log row", async () => {
+    addLog();
+    addLog();
+    const del = await call("DELETE", "/admin/api/logs?all=1");
+    expect(del.status).toBe(200);
+    expect((del.json as { removed: number }).removed).toBe(2);
+  });
+
+  it("DELETE /admin/api/logs?keepDays=7 deletes only rows older than the window", async () => {
+    const day = 24 * 60 * 60 * 1000;
+    addLog({ ts: Date.now() - 20 * day, request_id: "old" });
+    addLog({ ts: Date.now() - 2 * day, request_id: "new" });
+    const del = await call("DELETE", "/admin/api/logs?keepDays=7");
+    expect(del.status).toBe(200);
+    expect((del.json as { removed: number }).removed).toBe(1);
+  });
+
+  it("POST /admin/api/db/vacuum reclaims space and reports before/after/freed", async () => {
+    const big = "x".repeat(8 * 1024);
+    for (let i = 0; i < 200; i++) addLog({ request_body: big, response_body: big });
+    await call("DELETE", "/admin/api/logs?all=1");
+    const vac = await call("POST", "/admin/api/db/vacuum");
+    expect(vac.status).toBe(200);
+    const j = vac.json as { beforeBytes: number; afterBytes: number; freedBytes: number };
+    expect(j.freedBytes).toBe(j.beforeBytes - j.afterBytes);
+    expect(j.afterBytes).toBeLessThanOrEqual(j.beforeBytes);
+  });
+
+  it("PUT /admin/api/log-settings accepts maxDbSizeMb and GET returns it", async () => {
+    const put = await call("PUT", "/admin/api/log-settings", { maxDbSizeMb: 500 });
+    expect(put.status).toBe(200);
+    const get = await call("GET", "/admin/api/log-settings");
+    expect((get.json as { maxDbSizeMb: number }).maxDbSizeMb).toBe(500);
   });
 
   it("404 for unknown admin path", async () => {

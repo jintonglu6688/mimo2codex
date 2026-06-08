@@ -203,6 +203,20 @@ export interface LogSettingsResponse {
   retentionDays: number | null;
   retentionDaysCliOverride: number | null;
   retentionDaysCliOverrideActive: boolean;
+  maxDbSizeMb: number | null;
+}
+
+export interface DbSizeResponse {
+  totalBytes: number;
+  mainBytes: number;
+  walBytes: number;
+  shmBytes: number;
+}
+
+export interface DbVacuumResponse {
+  beforeBytes: number;
+  afterBytes: number;
+  freedBytes: number;
 }
 
 export interface MappingRow {
@@ -615,8 +629,14 @@ export const api = {
   logSettings: () => request<LogSettingsResponse>("GET", "/log-settings"),
   setSilentRewrite: (silentRewrite: boolean) =>
     request<{ ok: boolean }>("PUT", "/log-settings", { silentRewrite }),
-  setLogSettings: (body: { bodyMode?: LogBodyMode; retentionDays?: number | null }) =>
-    request<{ ok: boolean }>("PUT", "/log-settings", body),
+  setLogSettings: (body: {
+    bodyMode?: LogBodyMode;
+    retentionDays?: number | null;
+    maxDbSizeMb?: number | null;
+  }) => request<{ ok: boolean }>("PUT", "/log-settings", body),
+  dbSize: () => request<DbSizeResponse>("GET", "/db/size"),
+  vacuumDb: () => request<DbVacuumResponse>("POST", "/db/vacuum"),
+  clearAllLogs: () => request<{ removed: number }>("DELETE", "/logs?all=1"),
   codexState: () => request<CodexState>("GET", "/codex-state"),
   codexTargets: () => request<CodexTargetsResponse>("GET", "/codex-targets"),
   codexApply: (body: { providerId: string; modelId: string }) =>

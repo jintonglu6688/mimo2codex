@@ -267,7 +267,8 @@ describe("settings (key storage forbidden)", () => {
   it("normal settings round-trip", () => {
     setSetting("ui.theme", "dark");
     setSetting("ui.density", "compact");
-    expect(listSettings()).toEqual({ "ui.theme": "dark", "ui.density": "compact" });
+    // toMatchObject (not toEqual): a fresh db also seeds logging.* defaults (#67).
+    expect(listSettings()).toMatchObject({ "ui.theme": "dark", "ui.density": "compact" });
   });
 });
 

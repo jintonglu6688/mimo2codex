@@ -19,8 +19,9 @@ export function openDb(dataDir: string): DB {
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
-  applyMigrations(db);
+  const wasFresh = applyMigrations(db);
   seedBuiltins(db);
+  seedLoggingDefaults(db, wasFresh);
   instance = db;
   instancePath = dbPath;
   log.debug(`sqlite opened at ${dbPath}`);
@@ -42,13 +43,14 @@ export function getDb(): DB {
   return instance;
 }
 
-function applyMigrations(db: DB): void {
+function applyMigrations(db: DB): boolean {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at INTEGER NOT NULL
   );`);
   const row = db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number | null };
   const current = row.v ?? 0;
+  const wasFresh = current === 0;
   for (const m of MIGRATIONS) {
     if (m.version <= current) continue;
     db.exec(m.sql);
@@ -58,6 +60,34 @@ function applyMigrations(db: DB): void {
     );
     log.debug(`applied schema migration v${m.version}`);
   }
+  return wasFresh;
+}
+
+// One-time seeding of logging defaults (issue #67). A fresh install gets
+// opinionated, db-friendly defaults (30-day retention, errors-only bodies) so
+// the database can't silently balloon; an existing install instead locks in the
+// historical "keep everything / full bodies" behavior so upgrading never
+// deletes a user's logs or changes body capture without consent. The
+// `logging.defaultsSeeded` marker makes this idempotent, and ON CONFLICT DO
+// NOTHING means any value the user already set always wins.
+export function seedLoggingDefaults(db: DB, wasFresh: boolean): void {
+  const seeded = db
+    .prepare("SELECT 1 FROM settings WHERE key = 'logging.defaultsSeeded'")
+    .get();
+  if (seeded) return;
+  const insert = db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO NOTHING`
+  );
+  const now = Date.now();
+  if (wasFresh) {
+    insert.run("logging.retentionDays", "30", now);
+    insert.run("logging.bodyMode", "errors-only", now);
+  } else {
+    insert.run("logging.retentionDays", "off", now);
+    insert.run("logging.bodyMode", "full", now);
+  }
+  insert.run("logging.defaultsSeeded", "1", now);
 }
 
 // Drop providers whose shortcut already appeared (first writer wins). The
