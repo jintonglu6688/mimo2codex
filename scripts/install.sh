@@ -21,7 +21,7 @@
 #
 set -euo pipefail
 
-REPO_URL="${MIMO2CODEX_REPO:-https://github.com/your-org/mimo2codex.git}"
+REPO_URL="${MIMO2CODEX_REPO:-https://github.com/7as0nch/mimo2codex.git}"
 TARGET_DIR="${MIMO2CODEX_DIR:-mimo2codex}"
 START_AFTER=false
 for arg in "$@"; do

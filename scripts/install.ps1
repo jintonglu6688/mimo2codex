@@ -25,7 +25,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$script:RepoUrl  = if ($env:MIMO2CODEX_REPO) { $env:MIMO2CODEX_REPO } else { "https://github.com/your-org/mimo2codex.git" }
+$script:RepoUrl  = if ($env:MIMO2CODEX_REPO) { $env:MIMO2CODEX_REPO } else { "https://github.com/7as0nch/mimo2codex.git" }
 $script:Target   = if ($env:MIMO2CODEX_DIR)  { $env:MIMO2CODEX_DIR }  else { "mimo2codex" }
 
 function Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }

@@ -23,6 +23,8 @@ Release history of mimo2codex, newest first.
 
 - **[fix]** **Desktop app crashed on Intel (x86_64) macOS — admin UI 404** (issue #69): the macOS **x64** package shipped an **arm64** `better-sqlite3` native module, so on Intel Macs the sidecar failed to load it (`incompatible architecture`), the admin DB was unavailable, the admin routes were never registered, and every `/admin/` request 404'd. Root cause: the sidecar build passed `npm_config_target_arch`/`_platform`, but **prebuild-install** (better-sqlite3's binary fetcher) only honors `npm_config_arch`/`npm_config_platform` — so the cross-arch build (arm64 CI runner → x64 package) silently fell back to the runner's arch and fetched the wrong prebuild. Only macOS x64 was affected (Windows x64 / macOS arm64 are same-arch builds where the fallback happened to be correct). Two fixes: (1) `build-sidecar.mjs` now sets `npm_config_arch`/`npm_config_platform` (keeping `target_*` as a node-gyp source-build fallback); (2) a new **static arch check** (`scripts/detectNativeArch.mjs`, parses the Mach-O/PE/ELF header) runs on **every** build — including cross-arch, where the executable smoke test was skipped — so a wrong-arch module now fails CI instead of shipping to users.
 
+- **[fix]** **`install.sh` / `install.ps1` cloned a non-existent repo** (issue #66 follow-up): the bootstrap scripts' default `MIMO2CODEX_REPO` was still the template placeholder `your-org/mimo2codex`, so `curl … | bash` / `irm … | iex` failed right at the clone step. Now points at the real repo. These git-clone bootstrap scripts are *not* the documented install path (that's `npm install -g mimo2codex` or Docker), so this is unlikely to be the root of #66 — but it's a real bug regardless.
+
 ---
 
 ## v0.5.24 (upcoming)

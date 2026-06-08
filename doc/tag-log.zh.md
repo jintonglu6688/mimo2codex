@@ -23,6 +23,8 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 - **[fix]** **桌面端在 Intel（x86_64）macOS 上崩溃——admin UI 404**（issue #69）：macOS 的 **x64** 安装包里打进了 **arm64** 的 `better-sqlite3` 原生模块，于是 Intel Mac 上 sidecar 加载失败（`incompatible architecture`），admin 数据库不可用，admin 路由从未注册，所有 `/admin/` 请求都 404。根因：sidecar 构建传的是 `npm_config_target_arch`/`_platform`，但 **prebuild-install**（better-sqlite3 下载预编译二进制的工具）只认 `npm_config_arch`/`npm_config_platform`——于是交叉构建（arm64 CI runner → x64 包）静默 fallback 到 runner 的架构，下载了错误架构的 prebuild。只有 macOS x64 受影响（Windows x64 / macOS arm64 都是同架构构建，fallback 碰巧正确）。两处修复：(1) `build-sidecar.mjs` 现在设置 `npm_config_arch`/`npm_config_platform`（保留 `target_*` 作为 node-gyp 源码编译兜底）；(2) 新增**静态架构校验**（`scripts/detectNativeArch.mjs`，解析 Mach-O/PE/ELF 头），**每次**构建都跑——包括过去会跳过可执行 smoke test 的交叉构建——错误架构的模块现在会让 CI 失败，而不是发布给用户。
 
+- **[fix]** **`install.sh` / `install.ps1` 克隆了不存在的仓库**（issue #66 跟进）：引导脚本的默认 `MIMO2CODEX_REPO` 一直是模板占位符 `your-org/mimo2codex`，导致 `curl … | bash` / `irm … | iex` 在 clone 步骤就直接失败。现已指向真实仓库。这两个 git-clone 引导脚本**并非**文档推荐的安装路径（推荐 `npm install -g mimo2codex` 或 Docker），所以多半不是 #66 的根因——但仍是个实打实的 bug，一并修掉。
+
 ---
 
 ## v0.5.24 (upcoming)
