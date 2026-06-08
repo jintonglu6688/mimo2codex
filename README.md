@@ -13,6 +13,7 @@
   <img alt="license" src="https://img.shields.io/github/license/7as0nch/mimo2codex?style=flat-square">
   <img alt="node" src="https://img.shields.io/badge/Node-18%2B-blue?style=flat-square&logo=node.js&logoColor=white">
   <img alt="wire_api" src="https://img.shields.io/badge/wire__api-responses-black?style=flat-square">
+  <a href="https://paypal.me/7as0nch"><img alt="Sponsor on PayPal" src="https://img.shields.io/badge/Sponsor-PayPal-00457C?style=flat-square&logo=paypal&logoColor=white"></a>
 </p>
 
 Local proxy that lets the **latest OpenAI Codex CLI / desktop** talk to virtually any modern LLM. Built-in support for **Xiaomi MiMo V2.5** and **DeepSeek V4 Pro**, plus a **generic provider mechanism** for any **OpenAI Chat Completions-compatible** (Qwen / GLM / Kimi / vLLM / Ollama / LM Studio …) or **native Responses API** upstream — no code changes, no re-publish. It translates Codex's Responses API ↔ upstream Chat Completions on the fly, routes per-request by the `model` field, and runs on `127.0.0.1`.

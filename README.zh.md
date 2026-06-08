@@ -13,6 +13,7 @@
   <img alt="license" src="https://img.shields.io/github/license/7as0nch/mimo2codex?style=flat-square">
   <img alt="node" src="https://img.shields.io/badge/Node-18%2B-blue?style=flat-square&logo=node.js&logoColor=white">
   <img alt="wire_api" src="https://img.shields.io/badge/wire__api-responses-black?style=flat-square">
+  <a href="https://paypal.me/7as0nch"><img alt="赞助作者 · PayPal" src="https://img.shields.io/badge/Sponsor-PayPal-00457C?style=flat-square&logo=paypal&logoColor=white"></a>
 </p>
 
 让**最新版** OpenAI Codex CLI / Codex 桌面端接入主流大模型的本地代理。内置 **小米 MiMo V2.5** 与 **DeepSeek V4 Pro**，并提供**通用 provider 机制**——不改任何代码、不重新发包，就能把任何 **OpenAI Chat Completions 兼容**（Qwen / GLM / Kimi / 本地 vLLM / Ollama / LM Studio …）或**原生 Responses API**（OpenAI 自家）的上游接到新版 Codex。把 Codex 的 Responses API 实时翻译成上游的 Chat Completions，按客户端发的 `model` 字段在 provider 之间自动路由，跑在 `127.0.0.1`。

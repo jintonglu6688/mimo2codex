@@ -1,0 +1,8 @@
+# GitHub 仓库 "Sponsor" 按钮配置
+# 文档：https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+
+# PayPal 收款（GitHub 没有内置 PayPal 渠道，统一走 custom 放完整链接）
+custom: ["https://paypal.me/7as0nch"]
+
+# 将来开通 GitHub Sponsors 后，取消下面这行注释即可同时显示：
+# github: [7as0nch]

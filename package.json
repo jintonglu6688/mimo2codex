@@ -85,5 +85,9 @@
   },
   "bugs": {
     "url": "https://github.com/7as0nch/mimo2codex/issues"
+  },
+  "funding": {
+    "type": "paypal",
+    "url": "https://paypal.me/7as0nch"
   }
 }
