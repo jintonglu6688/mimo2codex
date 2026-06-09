@@ -43,6 +43,26 @@ const BUILTIN_MODELS: readonly ProviderModel[] = [
     maxOutputTokens: 131_072,
   },
   {
+    // MiMo V2.5 Pro UltraSpeed (issue #70) — 1T-param flagship "experience"
+    // mode, 500-1000 tok/s. Per the official spec it's text-only with deep
+    // thinking + tool calling; web search is NOT listed, so supportsWebSearch
+    // is false. Same 1M window and 131072 max output as Pro.
+    //
+    // Access: limited daily approval — must be applied for at
+    // https://platform.xiaomimimo.com/ultraspeed — and it's served ONLY on the
+    // pay-as-you-go API host (sk- keys). Token-plan / subscription (tp- keys)
+    // accounts can't use it. `note` surfaces this in the config.toml snippet.
+    id: "mimo-v2.5-pro-ultraspeed",
+    displayName: "MiMo V2.5 Pro UltraSpeed",
+    supportsImages: false,
+    supportsReasoning: true,
+    supportsWebSearch: false,
+    contextWindow: MIMO_CONTEXT_WINDOW,
+    maxOutputTokens: 131_072,
+    note: "apply to enable (limited); API / pay-as-you-go (sk-) key only — token-plan/subscription can't use it",
+    paygOnly: true,
+  },
+  {
     id: "mimo-v2-pro",
     displayName: "MiMo V2 Pro",
     supportsImages: false,

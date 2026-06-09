@@ -91,6 +91,8 @@
       "custom": "custom"
     },
     "activeOverride": "runtime active",
+    "restricted": "Restricted",
+    "restrictedTip": "Apply to enable; API / pay-as-you-go (sk-) key only — subscription / token-plan can't use it.",
     "applyBtn": "Write files & enable",
     "applyBusy": "writing…",
     "applyTitle": "Writes ~/.codex/auth.json and config.toml — requires Codex restart",

@@ -17,7 +17,13 @@ Release history of mimo2codex, newest first.
 
 ---
 
-## v0.5.25 (upcoming)
+## v0.5.26 (upcoming)
+
+- **[new]** **Built-in support for `MiMo-V2.5-Pro-UltraSpeed`** (issue #70): Xiaomi's new 1T-param flagship (500-1000 tok/s "experience" mode) is now a recognized built-in model. Before this, a request with `mimo-v2.5-pro-ultraspeed` was **silently rewritten to `mimo-v2.5-pro`** (so you actually ran Pro, not UltraSpeed) and the model couldn't be picked from the admin UI. Now it routes verbatim, appears in the model catalog / Codex Enable page, and `print-config` lists it. Declared text-only with reasoning + tool calling, 1M context, 131072 max output. Web search is **off** per the official spec — if you've enabled Codex web search on a pay-as-you-go account, UltraSpeed may 400 on the forwarded `web_search` tool; disable it for this model. **Access:** UltraSpeed is application-only (limited daily approval — apply at https://platform.xiaomimimo.com/ultraspeed) and is served **only on the pay-as-you-go API host (`sk-` keys)**; token-plan / subscription (`tp-`) accounts can't use it. The admin Codex-Enable page tags it **Restricted** (hover shows the note), and selecting UltraSpeed with a `tp-` key is rejected up front with a clear message (`model_requires_payg`) instead of a confusing upstream model-not-found.
+
+---
+
+## v0.5.25
 
 - **[new]** **Database housekeeping — one-click cleanup + VACUUM, size visibility, auto-maintenance** (issue #67): `data.db` could balloon (a user hit 6 GB) because the default keeps **full** request/response bodies forever and deletes never reclaim disk (SQLite leaves freed pages in the file until `VACUUM`). This adds: (1) **"Clear old logs" / "Clear all logs"** on the Logs page that **auto-run VACUUM right after deleting** (so the file actually shrinks, not just frees internal pages), plus a **live database-size readout** on the Logs page; (2) **size-cap auto-maintenance** — set `logging.maxDbSizeMb` and the 6-hour maintenance pass trims the oldest logs and runs a throttled VACUUM (≤ once/day); (3) **db-friendlier defaults for fresh installs only** — 30-day retention + `errors-only` body capture, while existing installs are migrated to explicit `off`/`full` so an upgrade never deletes anyone's logs or changes capture without consent. New endpoints: `GET /admin/api/db/size`, `POST /admin/api/db/vacuum` (with a free-disk pre-check), and `DELETE /admin/api/logs?all=1|keepDays=<n>`.
 
@@ -27,7 +33,7 @@ Release history of mimo2codex, newest first.
 
 ---
 
-## v0.5.24 (upcoming)
+## v0.5.24
 
 - **[new]** **Automatic context compaction** (issue #65 follow-up): long Codex sessions resend their whole history every turn, and once it nears the model's context cap the upstream either 400s or prefills so slowly the stream drops. mimo2codex now estimates the input size and, when it crosses a token trigger that **scales with the model's context window** (`contextWindow × threshold`, **threshold default 0.8** — e.g. ~800k for a 1M-window model, ~205k for a 256k one), **summarizes the older middle** of the conversation into one compact note via the same model, keeping the leading system messages and the most recent turns verbatim. The split always lands on a clean `user` boundary so tool_call/tool_result pairs are never orphaned, image base64 is never fed to the summarizer, and a stable prefix is cached so it isn't re-summarized every turn. Best-effort: if the summary call fails the original history is left intact. Default **on**; toggle/tune via `MIMO2CODEX_AUTO_COMPACT` (0=off), `MIMO2CODEX_AUTO_COMPACT_THRESHOLD`, or an absolute `MIMO2CODEX_AUTO_COMPACT_AT_TOKENS` (for upstreams whose advertised window overstates their real cap) — also exposed as admin settings `codex.autoCompactEnabled` / `codex.autoCompactThreshold` / `codex.autoCompactAtTokens`. Runs while the keepalive is active so the summary round-trip doesn't reintroduce a silent socket.
 

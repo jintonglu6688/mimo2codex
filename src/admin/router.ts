@@ -1451,6 +1451,7 @@ async function handleApi(ctx: RouteContext): Promise<void> {
           displayName: m.displayName ?? null,
           contextWindow: m.contextWindow ?? null,
           maxOutputTokens: m.maxOutputTokens ?? null,
+          note: m.note ?? null,
           source: "builtin",
           hasKey: !!runtime,
           isCurrentOverride:
@@ -1471,6 +1472,7 @@ async function handleApi(ctx: RouteContext): Promise<void> {
             displayName: row.display_name ?? null,
             contextWindow: row.context_window ?? null,
             maxOutputTokens: null,
+            note: null,
             source: "custom",
             hasKey: !!runtime,
             isCurrentOverride:

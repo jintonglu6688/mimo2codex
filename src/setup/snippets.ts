@@ -90,7 +90,8 @@ export function alternativesComment(t: SnippetTarget): string {
     const maxOut =
       modelMaxOut && m.contextWindow ? `   model_max_output_tokens = ${modelMaxOut}` : "";
     const marker = m.id === t.modelId ? " (current)" : "";
-    lines.push(`#   model = "${m.id}"${ctx}${maxOut}${marker}`);
+    const note = m.note ? `   # ${m.note}` : "";
+    lines.push(`#   model = "${m.id}"${ctx}${maxOut}${marker}${note}`);
   }
   return lines.join("\n");
 }

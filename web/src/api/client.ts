@@ -294,6 +294,7 @@ export interface CodexTarget {
   displayName: string | null;
   contextWindow: number | null;
   maxOutputTokens: number | null;
+  note: string | null;
   source: "builtin" | "custom";
   hasKey: boolean;
   isCurrentOverride: boolean;

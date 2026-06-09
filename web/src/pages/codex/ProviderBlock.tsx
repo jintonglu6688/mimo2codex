@@ -47,6 +47,11 @@ export function ProviderBlock({
             {row.isCurrentOverride && (
               <Tag color="success">{t("targets.activeOverride")}</Tag>
             )}
+            {row.note && (
+              <Tooltip title={t("targets.restrictedTip")}>
+                <Tag color="warning">{t("targets.restricted")}</Tag>
+              </Tooltip>
+            )}
             {probe && (
               <Tooltip
                 title={

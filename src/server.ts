@@ -342,6 +342,23 @@ export interface ProviderOverride {
   modelId: string;
 }
 
+// Reject a payg-only model (e.g. UltraSpeed, issue #70) when the active key is a
+// token-plan (tp-) key — that host doesn't serve the model and would 404 with a
+// confusing message. Returns a user-facing reason string, or null when fine.
+export function paygOnlyBlock(
+  modelInfo: ProviderModel | null,
+  runtime: ProviderRuntime
+): string | null {
+  if (modelInfo?.paygOnly && runtime.flags.isTokenPlan) {
+    return (
+      `${modelInfo.displayName ?? modelInfo.id} requires a pay-as-you-go (sk-) API key ` +
+      `with approved access — token-plan / subscription keys can't use it. ` +
+      `Apply at https://platform.xiaomimimo.com/ultraspeed`
+    );
+  }
+  return null;
+}
+
 export function selectProvider(
   clientModel: string,
   cfg: Config,
@@ -701,6 +718,12 @@ async function handleResponses(
       to: rewriteNotice.to,
       reason: rewriteNotice.reason,
     });
+  }
+
+  const paygReason = paygOnlyBlock(modelInfo, runtime);
+  if (paygReason) {
+    sendJson(res, 400, errorEnvelope(400, "model_requires_payg", paygReason));
+    return;
   }
 
   if (provider.wireApi === "responses") {
@@ -1403,6 +1426,12 @@ async function handleChatPassthrough(
       to: rewriteNotice.to,
       reason: rewriteNotice.reason,
     });
+  }
+
+  const paygReason = paygOnlyBlock(modelInfo, runtime);
+  if (paygReason) {
+    sendJson(res, 400, errorEnvelope(400, "model_requires_payg", paygReason));
+    return;
   }
 
   const body = provider.preprocessChat(payload, {

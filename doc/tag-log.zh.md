@@ -17,7 +17,13 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 ---
 
-## v0.5.25 (upcoming)
+## v0.5.26 (upcoming)
+
+- **[new]** **内置支持 `MiMo-V2.5-Pro-UltraSpeed`**（issue #70）：小米新出的万亿参数（1T）旗舰、500-1000 tok/s「体验模式」现已作为内置模型被识别。此前发送 `mimo-v2.5-pro-ultraspeed` 会**被静默改写成 `mimo-v2.5-pro`**（实际跑的是 Pro 而非 UltraSpeed），且 admin UI 里选不到它。现在它会原样路由、出现在模型目录 /「Codex 启用」页，`print-config` 也会列出。按官方规格声明为纯文本 + 深度思考 + 工具调用、1M 上下文、131072 最大输出。联网搜索**关闭**（官方能力未列）——若你在 PAYG 账户上开了 Codex 联网搜索，UltraSpeed 转发 `web_search` 时可能 400，对该模型请关掉。**使用限制：**UltraSpeed 需申请开通（每日限量审批，在 https://platform.xiaomimimo.com/ultraspeed 申请），且**仅在按量付费 API host（`sk-` key）上提供**；套餐订阅（`tp-`）账户用不了。admin 的「Codex 启用」页会把它标为**受限**（悬停看说明），用 `tp-` key 选 UltraSpeed 会被前置拦截、给出清晰提示（`model_requires_payg`），而不是上游那种让人困惑的 model-not-found。
+
+---
+
+## v0.5.25
 
 - **[new]** **数据库瘦身——一键清理 + VACUUM、大小可见、自动维护**（issue #67）：`data.db` 会无限膨胀（有用户涨到 6 GB），因为默认**完整**保存请求/响应体且永不清理，而删日志也不还磁盘（SQLite 删行只把空闲页留在文件里，要 `VACUUM` 才缩）。本次新增：(1) Logs 页**「清理旧日志」/「清空全部」**会在删除后**自动 VACUUM**（文件才真正变小，而不只是释放内部页），Logs 页顶部显示**实时数据库大小**；(2) **按大小阈值自动维护**——设置 `logging.maxDbSizeMb` 后，每 6 小时维护会清理最旧日志并做节流 VACUUM（≤ 每天一次）；(3) **仅对全新安装启用更省空间的默认值**——保留 30 天 + 只存出错请求体，已有安装迁移为显式 `off`/`full`，升级绝不删任何人的历史日志或改变捕获方式。新增端点：`GET /admin/api/db/size`、`POST /admin/api/db/vacuum`（带可用磁盘预检）、`DELETE /admin/api/logs?all=1|keepDays=<n>`。
 
@@ -27,7 +33,7 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 ---
 
-## v0.5.24 (upcoming)
+## v0.5.24
 
 - **[new]** **上下文自动压缩**（issue #65 后续）：长会话每轮都把完整历史重发，一旦接近模型上下文上限，上游要么 400、要么 prefill 太慢导致断流。mimo2codex 现在会估算输入大小，超过**随模型窗口缩放**的 token 阈值（`contextWindow × 阈值`，**阈值默认 0.8**——例如 1M 窗口约 800k、256k 窗口约 205k）时，**把较旧的中段对话**经同一个模型总结成一条紧凑摘要，保留开头的 system 消息和最近若干轮原文。切分点一定落在干净的 `user` 边界，绝不拆散 tool_call/tool_result 配对；图片 base64 绝不喂给摘要调用；稳定的前缀会被缓存，避免每轮重复总结。尽力而为：摘要调用失败则原样保留历史。默认**开**；可用 `MIMO2CODEX_AUTO_COMPACT`（0=关）、`MIMO2CODEX_AUTO_COMPACT_THRESHOLD`，或绝对值 `MIMO2CODEX_AUTO_COMPACT_AT_TOKENS`（用于「对外报的窗口大于真实可用上限」的上游）调整——同样暴露为 admin 设置 `codex.autoCompactEnabled` / `codex.autoCompactThreshold` / `codex.autoCompactAtTokens`。压缩在 keepalive 已激活时进行，摘要往返不会重新引入静默连接。
 

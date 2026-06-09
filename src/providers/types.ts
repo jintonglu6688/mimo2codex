@@ -26,6 +26,14 @@ export interface ProviderModel {
   // own caps uniformly.
   maxOutputTokens?: number;
   deprecatedAfter?: string;
+  // Optional short access/availability note surfaced in the generated
+  // config.toml model list (e.g. "apply to enable; API/PAYG key only").
+  // Plain text, kept terse — it renders as a trailing `# <note>` comment.
+  note?: string;
+  // When true the model is only served on the pay-as-you-go API host; a
+  // token-plan / subscription (tp-) key can't use it. The server rejects such a
+  // request early with a clear message (see paygOnlyBlock in server.ts).
+  paygOnly?: boolean;
 }
 
 export interface ProviderEnhancedError {

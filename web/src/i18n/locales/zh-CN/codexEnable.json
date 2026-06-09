@@ -91,6 +91,8 @@
       "custom": "自定义"
     },
     "activeOverride": "运行时激活",
+    "restricted": "受限",
+    "restrictedTip": "需申请开通，仅支持 API / 按量付费（sk-）key，套餐订阅（tp-）用不了。",
     "applyBtn": "写入文件并启用",
     "applyBusy": "写入中…",
     "applyTitle": "写入 ~/.codex/auth.json 和 config.toml，需重启 Codex",

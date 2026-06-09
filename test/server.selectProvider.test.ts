@@ -1,9 +1,9 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { selectProvider } from "../src/server.js";
+import { paygOnlyBlock, selectProvider } from "../src/server.js";
 import type { Config } from "../src/config.js";
 import { initRegistry } from "../src/providers/registry.js";
 import { createGenericProvider } from "../src/providers/generic.js";
-import type { ProviderRuntime } from "../src/providers/types.js";
+import type { ProviderModel, ProviderRuntime } from "../src/providers/types.js";
 
 // Build a minimal Config for routing tests. Only fields read by selectProvider
 // matter: defaultProviderId, providers map. Everything else is filled with
@@ -132,6 +132,54 @@ describe("selectProvider routing priority (PR #6 regression)", () => {
     expect(sel.provider.id).toBe("deepseek");
     expect(sel.upstreamModel).toBe("deepseek-v4-pro");
     expect(sel.rewriteNotice).toBeNull();
+  });
+
+  it("case H: mimo-v2.5-pro-ultraspeed routes verbatim (issue #70 — not downgraded to pro)", () => {
+    initRegistry([]);
+    const cfg = makeConfig({
+      defaultProviderId: "mimo",
+      providers: { mimo: fakeRuntime, deepseek: null },
+    });
+    const sel = selectProvider("mimo-v2.5-pro-ultraspeed", cfg);
+    expect(sel.provider.id).toBe("mimo");
+    expect(sel.upstreamModel).toBe("mimo-v2.5-pro-ultraspeed");
+    expect(sel.rewriteNotice).toBeNull();
+  });
+});
+
+describe("paygOnlyBlock (issue #70 — UltraSpeed needs a PAYG key)", () => {
+  const ultraspeed = {
+    id: "mimo-v2.5-pro-ultraspeed",
+    displayName: "MiMo V2.5 Pro UltraSpeed",
+    paygOnly: true,
+  } as ProviderModel;
+  const pro = { id: "mimo-v2.5-pro" } as ProviderModel;
+
+  it("blocks a payg-only model on a token-plan (tp-) runtime", () => {
+    const msg = paygOnlyBlock(ultraspeed, {
+      apiKey: "tp-x",
+      baseUrl: "x",
+      flags: { isTokenPlan: true },
+    });
+    expect(msg).toMatch(/pay-as-you-go/i);
+  });
+
+  it("allows a payg-only model on a pay-as-you-go (sk-) runtime", () => {
+    expect(
+      paygOnlyBlock(ultraspeed, { apiKey: "sk-x", baseUrl: "x", flags: { isTokenPlan: false } })
+    ).toBeNull();
+  });
+
+  it("never blocks a model that isn't payg-only", () => {
+    expect(
+      paygOnlyBlock(pro, { apiKey: "tp-x", baseUrl: "x", flags: { isTokenPlan: true } })
+    ).toBeNull();
+  });
+
+  it("handles null modelInfo", () => {
+    expect(
+      paygOnlyBlock(null, { apiKey: "tp-x", baseUrl: "x", flags: { isTokenPlan: true } })
+    ).toBeNull();
   });
 });
 
