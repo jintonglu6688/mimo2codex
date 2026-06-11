@@ -191,6 +191,18 @@ export function parseArgv(argv: string[]): ParsedArgs {
   return out;
 }
 
+// An empty / whitespace-only base-url override (from env or CLI) means "use the
+// default", not "use an empty host". The desktop Settings intentionally writes
+// MIMO_BASE_URL= (empty) when the field is left blank (App.tsx clears fields by
+// writing them back empty), so without this the empty string wins the `??` chain
+// below and pins the upstream to "" — leaving the banner's `upstream:` blank and
+// every request hostless. Collapse blanks to undefined so the fallback chain
+// (key-based inference → defaultBaseUrl) runs.
+function blankToUndefined(v: string | undefined): string | undefined {
+  const t = v?.trim();
+  return t ? t : undefined;
+}
+
 function resolveProviderRuntime(
   provider: Provider,
   isDefault: boolean,
@@ -218,8 +230,8 @@ function resolveProviderRuntime(
   // host with a tp-* key 401s, so this auto-switches to the right one when
   // the user hasn't overridden it explicitly.
   const baseUrl =
-    baseUrlFromCli ??
-    env[provider.baseUrlEnv] ??
+    blankToUndefined(baseUrlFromCli) ??
+    blankToUndefined(env[provider.baseUrlEnv]) ??
     provider.inferBaseUrlFromKey?.(apiKey) ??
     provider.defaultBaseUrl;
   return {

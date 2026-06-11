@@ -55,8 +55,8 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       zh: "桌面端:管理后台数据库加载失败时给出明确错误",
     },
     summary: {
-      en: "Fixes the Apple-Silicon desktop /admin/ 404 and makes the failure self-explanatory.",
-      zh: "修复 Apple Silicon 桌面端 /admin/ 404,并让该故障自解释。",
+      en: "Fixes the Apple-Silicon desktop /admin/ 404 and a blank Base URL leaving the upstream host empty.",
+      zh: "修复 Apple Silicon 桌面端 /admin/ 404,以及 Base URL 留空导致上游主机为空的问题。",
     },
     highlights: [
       {
@@ -72,6 +72,21 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         location: {
           en: "Desktop app → open /admin/ (a failed DB now explains itself)",
           zh: "桌面端 → 打开 /admin/(DB 加载失败会自解释)",
+        },
+      },
+      {
+        kind: "fixed",
+        title: {
+          en: "Blank Base URL no longer leaves the upstream host empty",
+          zh: "Base URL 留空不再导致上游主机为空",
+        },
+        description: {
+          en: "If you left the Base URL field blank in Settings, the proxy could end up with no upstream host (the startup banner showed an empty 'upstream:') — so requests had nowhere to go. A blank Base URL now correctly falls back to the right MiMo host based on your key prefix (tp- → token-plan, sk- → pay-as-you-go). Existing setups are auto-fixed on upgrade — no need to re-enter anything.",
+          zh: "如果你在设置里把 Base URL 留空,代理可能会没有上游主机(启动 banner 的 'upstream:' 是空的),请求就发不出去。现在 Base URL 留空会正确按 key 前缀回落到对应的 MiMo 主机(tp- → 套餐版,sk- → 按量付费)。已有配置升级后自动修复,无需重填。",
+        },
+        location: {
+          en: "Desktop Settings → Base URL (leave empty to use default)",
+          zh: "桌面端设置 → Base URL(留空使用默认)",
         },
       },
     ],
