@@ -121,7 +121,7 @@ function canCreateSymlinkOnWindows() {
 // ── Pre-flight ───────────────────────────────────────────────────────────
 banner(`mimo2codex desktop · local pack · ${platformLabel} ${arch}`);
 
-const totalSteps = 6;
+const totalSteps = 7;
 let n = 0;
 
 // Step 1: dependency presence + Windows symlink capability
@@ -318,6 +318,23 @@ step(n, totalSteps, `electron-builder → ${platformLabel} ${arch}${isCrossBuild
       );
     }
     throw err;
+  }
+}
+
+// Step 7: post-package end-to-end health check (native target only)
+n++;
+step(n, totalSteps, "Post-package health check (packaged sidecar → /admin/api/health)");
+{
+  if (isCrossBuild) {
+    note(`skipped — can't run a ${platform}-${arch} app on this ${process.platform}-${process.arch} host.`);
+    note("Validate on a native-arch machine before publishing this artifact.");
+  } else {
+    const t0 = performance.now();
+    // Launches the just-built packaged app's bundled Electron as Node against the
+    // packaged cli.js and asserts admin came up (better-sqlite3 loaded). Catches
+    // the wrong-arch / wrong-ABI / unsigned-.node class that pre-package smoke misses.
+    await run("node", ["scripts/postpack-healthcheck.mjs", platform, arch]);
+    ok(t0);
   }
 }
 

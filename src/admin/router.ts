@@ -283,6 +283,10 @@ async function handleApi(ctx: RouteContext): Promise<void> {
     const restart = isRestartRequired() ? getRestartInfo() : null;
     return sendJson(res, 200, {
       ok: true,
+      // Always true here: this handler only runs when admin is enabled. The
+      // crash-disabled path in server.ts answers /admin/api/health itself with
+      // adminEnabled:false, so probes can rely on this field in both states.
+      adminEnabled: true,
       dataDir: cfg.dataDir,
       version,
       authMode: cfg.authMode,

@@ -87,6 +87,17 @@ jobs:
         working-directory: package/desktop
         run: npx electron-builder --${{ matrix.target }} --${{ matrix.arch }} --publish never --config electron-builder.yml
 
+      # Launch the PACKAGED app's bundled Electron as Node against the packaged
+      # sidecar and assert /admin/api/health → adminEnabled:true. Catches the
+      # wrong-arch / wrong-ABI / unsigned-.node class that the pre-package smoke
+      # test can't see (the mac-arm64 "/admin/ 404" regression). Self-skips for
+      # the mac-x64 cross-build (can't run an x64 app on the arm64 runner), so
+      # that artifact must still be validated on a real Intel Mac before relying
+      # on it. Hard-fails the job on a broken native artifact.
+      - name: Post-package health check (native target)
+        shell: bash
+        run: node scripts/postpack-healthcheck.mjs "${{ matrix.sidecar_platform }}" "${{ matrix.arch }}"
+
       - name: List release directory
         if: always()
         shell: bash

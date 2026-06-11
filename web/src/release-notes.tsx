@@ -48,30 +48,30 @@ export interface ReleaseNote {
 // doc/tag-log.{md,zh.md} for users who want the full history.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
-    version: "0.5.26",
-    date: "2026-06-09",
+    version: "0.5.27",
+    date: "2026-06-11",
     title: {
-      en: "New model: MiMo-V2.5-Pro-UltraSpeed",
-      zh: "新模型:MiMo-V2.5-Pro-UltraSpeed",
+      en: "Desktop: clearer error when the admin DB can't load",
+      zh: "桌面端:管理后台数据库加载失败时给出明确错误",
     },
     summary: {
-      en: "Built-in support for Xiaomi's 1T-param UltraSpeed flagship (500-1000 tok/s).",
-      zh: "内置支持小米万亿参数 UltraSpeed 旗舰(500-1000 tok/s)。",
+      en: "Fixes the Apple-Silicon desktop /admin/ 404 and makes the failure self-explanatory.",
+      zh: "修复 Apple Silicon 桌面端 /admin/ 404,并让该故障自解释。",
     },
     highlights: [
       {
-        kind: "new",
+        kind: "fixed",
         title: {
-          en: "New model: MiMo-V2.5-Pro-UltraSpeed",
-          zh: "新模型:MiMo-V2.5-Pro-UltraSpeed",
+          en: "Apple-Silicon desktop /admin/ no longer fails with a baffling 404",
+          zh: "Apple Silicon 桌面端 /admin/ 不再回令人费解的 404",
         },
         description: {
-          en: "Xiaomi's 1T-param flagship (500-1000 tok/s) is now built in. Sending it used to be silently rewritten to mimo-v2.5-pro (so you ran Pro, not UltraSpeed); now it routes verbatim and shows up in the model catalog and Codex Enable page. Note: it's application-only (apply on the MiMo platform) and runs on the API / pay-as-you-go (sk-) key only — subscription / token-plan accounts can't use it.",
-          zh: "小米的万亿参数(1T)旗舰、500-1000 tok/s 极速模型现已内置。此前发送它会被静默改写成 mimo-v2.5-pro(实际跑的是 Pro 而非 UltraSpeed);现在原样路由,并出现在模型目录和「Codex 启用」页。注意:需在 MiMo 平台申请开通,且仅支持 API / 按量付费(sk-)key,套餐订阅账户用不了。",
+          en: "On some Macs the desktop app's /admin/ returned a misleading \"no route\" 404 because the bundled database module failed to load and the admin console was silently disabled. It now returns a clear 503 that names the real reason and how to fix it (reinstall / run `xattr -cr` on the app). The desktop packaging was also hardened so a broken native module can't ship: each build now runs the packaged app end-to-end and refuses to publish if the admin console doesn't come up.",
+          zh: "部分 Mac 上桌面端 /admin/ 会回误导性的「no route」404 —— 实际是内置数据库模块加载失败、管理后台被静默关闭。现在改回清晰的 503,直接说明真实原因与修复办法(重装 / 对 app 执行 `xattr -cr`)。同时加固了桌面端打包:每次构建都会端到端跑一遍打包后的应用,管理后台起不来就拒绝发布,杜绝坏的原生模块上车。",
         },
         location: {
-          en: "Codex Enable page → pick MiMo V2.5 Pro UltraSpeed",
-          zh: "「Codex 启用」页 → 选 MiMo V2.5 Pro UltraSpeed",
+          en: "Desktop app → open /admin/ (a failed DB now explains itself)",
+          zh: "桌面端 → 打开 /admin/(DB 加载失败会自解释)",
         },
       },
     ],

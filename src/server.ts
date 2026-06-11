@@ -1731,6 +1731,49 @@ export function startServer(cfg: Config): Server {
       void handleAdmin(cfg, req, res, guard.ctx);
       return;
     }
+    // Admin was force-disabled at startup because the SQLite native module
+    // failed to load (wrong arch / ABI / unsigned .node — typical on the
+    // bundled desktop sidecar). Without this, /admin/ falls through to the
+    // generic 404 below and the user sees a baffling `no route for GET /admin/`
+    // (the exact symptom of the mac-arm64 regression). Surface the real reason
+    // instead. handleAdmin isn't registered here (it needs the DB), so we
+    // answer inline. An intentional --no-admin leaves adminDisabledReason unset
+    // and still gets the historic 404.
+    if (
+      !cfg.adminEnabled &&
+      cfg.adminDisabledReason &&
+      (url === "/admin" || url.startsWith("/admin/"))
+    ) {
+      const reason = cfg.adminDisabledReason;
+      // Keep /admin/api/health reachable as a 200 liveness probe (CI / desktop
+      // shell poll it) — mirror the maintenance-mode whitelist above.
+      if (url.startsWith("/admin/api/health")) {
+        sendJson(res, 200, {
+          ok: false,
+          adminEnabled: false,
+          reason: "db_unavailable",
+          message: reason.message,
+          likelyBinding: reason.likelyBinding,
+          dataDir: reason.dataDir,
+        });
+        return;
+      }
+      res.setHeader("Retry-After", "300");
+      sendJson(
+        res,
+        503,
+        errorEnvelope(
+          503,
+          "admin_db_unavailable",
+          `管理后台已禁用：本机 better-sqlite3 原生模块加载失败（${reason.message}）。` +
+            (reason.likelyBinding
+              ? " 修复：重装应用 / 确认安装包架构与本机匹配；macOS 可执行 " +
+                "`xattr -cr /Applications/mimo2codex.app` 后重启。"
+              : ` 修复：确认数据目录可写（${reason.dataDir}），或用 --data-dir <可写路径> 指定其它位置。`)
+        )
+      );
+      return;
+    }
     sendJson(res, 404, errorEnvelope(404, "not_found", `no route for ${req.method} ${url}`));
   });
 

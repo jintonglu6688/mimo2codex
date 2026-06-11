@@ -138,9 +138,21 @@ function verifyNativeArch() {
 }
 
 function smokeTestWithElectron() {
-  // Only safe when building for the same platform/arch we're running on
+  // Only safe when building for the same platform/arch we're running on.
+  // A cross-target build (e.g. arm64 mac runner → x64 package) can't *run* the
+  // foreign binary, so the ABI (NODE_MODULE_VERSION) stays unverified at build
+  // time. verifyNativeArch() above still asserts the CPU arch statically; the
+  // ABI + signing + packaged-path are covered by the post-package health check
+  // (scripts/postpack-healthcheck.mjs), which runs on a native-arch machine.
+  // Make this a LOUD warning, not a silent skip — a silent skip is how a
+  // wrong-ABI module could slip through for the one cross-build we ship (mac-x64).
   if (platform !== process.platform || arch !== process.arch) {
-    console.log(`[sidecar] skipping smoke test (cross-target ${platform}-${arch} vs host ${process.platform}-${process.arch})`);
+    console.warn(
+      `[sidecar] ⚠ ABI smoke test SKIPPED — cross-target ${platform}-${arch} on host ` +
+      `${process.platform}-${process.arch} can't run the foreign binary.\n` +
+      `          CPU arch was statically verified; ABI + signing must be validated by the\n` +
+      `          post-package health check on a native-arch ${platform}-${arch} machine.`
+    );
     return;
   }
   const electronBin = platform === "win32"
@@ -156,8 +168,13 @@ function smokeTestWithElectron() {
 
   console.log("[sidecar] smoke-testing better-sqlite3 with Electron as Node (ABI check)...");
   try {
+    // A successful require under the SAME Electron we package proves the module's
+    // ABI (NODE_MODULE_VERSION) matches the shipped runtime — print it so the
+    // build log records which ABI was validated (helps post-mortem if a future
+    // electron bump drifts the ABI). Also exercise an in-memory open, not just
+    // require, so a load-but-can't-run regression also fails here.
     execSync(
-      `"${electronBin}" -e "require('better-sqlite3'); console.log('OK')"`,
+      `"${electronBin}" -e "const D=require('better-sqlite3'); new D(':memory:').close(); console.log('OK abi='+process.versions.modules+' arch='+process.arch)"`,
       {
         cwd: sidecarOut,
         env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },

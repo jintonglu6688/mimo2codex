@@ -11,6 +11,14 @@ copyright: "© 2026 chengj"
 # "Cannot read properties of null (reading 'channel')" in updateInfoBuilder.
 publish: null
 
+# Ad-hoc code-sign the sidecar native modules (+ app bundle) after packaging.
+# Without a signing identity, the extraResources better_sqlite3.node can stay
+# unsigned, and Apple Silicon's AMFI then rejects it at dlopen → admin DB fails
+# to load → /admin/ 404. The hook (mac-only, non-fatal) applies an ad-hoc
+# signature so the local machine accepts it. Path is relative to this projectDir
+# (package/desktop). See scripts/after-pack-sign.cjs + postpack-healthcheck.mjs.
+afterPack: ../../scripts/after-pack-sign.cjs
+
 directories:
   output: release
   buildResources: ../

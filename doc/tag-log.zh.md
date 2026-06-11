@@ -17,6 +17,16 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 ---
 
+## v0.5.27 (upcoming)
+
+- **[fix]** **桌面端 Mac M 芯片（arm64）`/admin/` 静默 404**（0.5.26 回归，mac-intel / win 一并排查）：现象是访问 `/admin/` 返回 `{"error":{"type":"invalid_request_error","code":"not_found","message":"no route for GET /admin/","status":404}}`，退回 0.5.24 正常。根因链已逐行确认：sidecar 启动时 `openDb()` 加载 better-sqlite3 原生模块失败（错架构 / 错 ABI / Apple Silicon 未签名被 AMFI 拒），`cli.ts` 优雅降级把 `adminEnabled=false`（issue #30），于是 `/admin/` 落到通用 404 —— **失败被静默吞掉，报文极具误导性**。本次三层修复：(1) **运行时把静默 404 变成明确诊断**：因 DB 加载失败而被迫禁用 admin 时，`/admin/` 改回 **503 `admin_db_unavailable`**，带上 better-sqlite3 的原始错误与修复指引（重装 / 架构匹配 / macOS `xattr -cr`），并保留 `/admin/api/health` 回 `200 {adminEnabled:false, reason:"db_unavailable", message}` 供 CI / 桌面壳探测；用户显式 `--no-admin` / `MIMO2CODEX_NO_ADMIN` 仍保持原 404、不打扰。(2) **macOS ad-hoc 重签**：新增 `afterPack` 钩子（`scripts/after-pack-sign.cjs`，仅 macOS、非致命）对 `Contents/Resources/sidecar` 下的 `.node` 及整个 app 包做 ad-hoc 签名 —— extraResources 里的 `better_sqlite3.node` 在无证书签名时可能未签，Apple Silicon 的 AMFI 会在 dlopen 时拒绝它（Intel / Windows 不强制，正好对应"M 芯片坏、intel/win 好"）。(3) **打包后端到端门禁**：新增 `scripts/postpack-healthcheck.mjs`，用打进去的 Electron 实跑打包后的 sidecar 并断言 `/admin/api/health → adminEnabled:true`，把"错架构 / 错 ABI / 未签名 .node"这一类问题在发布前拦住（接入 `pack-desktop-local` 第 7 步与 CI `build-desktop.yml`，原生目标跑、交叉目标自动跳过）。
+
+- **[opt]** **构建期校验更严、不再有静默缺口**：`build-sidecar.mjs` 的交叉构建（arm64 runner → x64 包）此前会**静默跳过** ABI smoke test，现改为**醒目告警**并说明 ABI/签名须由打包后门禁在原生机校验；原生 smoke test 现在不只 `require`，还会实跑 `new Database(':memory:')` 并打印 `process.versions.modules`（ABI）+ `process.arch`，方便日后排查 electron 版本漂移。新增 `scripts/verify-release-native.mjs`：对任意桌面产物（.app / win-unpacked / sidecar 目录 / `.node`）解析 Mach-O/PE/ELF 头报告 CPU 架构、比对 `SIDECAR_INFO.json` 记录的构建目标，并打印目标机上验证 ABI + 签名的下一步命令。
+
+- **[doc]** **win-arm64 桌面端目前不打包**（回答"win 几个平台都查一下"）：CI 矩阵刻意不构建 win-arm64（better-sqlite3 v12.x 的 win32-arm64 预编译不可靠，且现有 `probe-prebuild.mjs` 不是可靠的跨架构门禁）。Windows on ARM 用户请用 x64 安装包（在 Win11 ARM 的 x64 仿真下可运行）。已知缺口，已明确记录，不再静默缺失。
+
+---
+
 ## v0.5.26 (upcoming)
 
 - **[new]** **内置支持 `MiMo-V2.5-Pro-UltraSpeed`**（issue #70）：小米新出的万亿参数（1T）旗舰、500-1000 tok/s「体验模式」现已作为内置模型被识别。此前发送 `mimo-v2.5-pro-ultraspeed` 会**被静默改写成 `mimo-v2.5-pro`**（实际跑的是 Pro 而非 UltraSpeed），且 admin UI 里选不到它。现在它会原样路由、出现在模型目录 /「Codex 启用」页，`print-config` 也会列出。按官方规格声明为纯文本 + 深度思考 + 工具调用、1M 上下文、131072 最大输出。联网搜索**关闭**（官方能力未列）——若你在 PAYG 账户上开了 Codex 联网搜索，UltraSpeed 转发 `web_search` 时可能 400，对该模型请关掉。**使用限制：**UltraSpeed 需申请开通（每日限量审批，在 https://platform.xiaomimimo.com/ultraspeed 申请），且**仅在按量付费 API host（`sk-` key）上提供**；套餐订阅（`tp-`）账户用不了。admin 的「Codex 启用」页会把它标为**受限**（悬停看说明），用 `tp-` key 选 UltraSpeed 会被前置拦截、给出清晰提示（`model_requires_payg`），而不是上游那种让人困惑的 model-not-found。

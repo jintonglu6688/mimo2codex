@@ -27,6 +27,13 @@ export interface Config {
   isTokenPlan: boolean;
   dataDir: string;
   adminEnabled: boolean;
+  // Set ONLY when admin was force-disabled at startup because the SQLite
+  // native module failed to load (openDb threw) — NOT when the user opted out
+  // via --no-admin / MIMO2CODEX_NO_ADMIN (those leave this undefined). Lets
+  // server.ts tell "admin crashed" apart from "admin intentionally off" and
+  // serve a clear diagnostic on /admin/ instead of a confusing `no route` 404.
+  // See cli.ts openDb catch + server.ts admin routing.
+  adminDisabledReason?: { message: string; likelyBinding: boolean; dataDir: string };
   // How to render upstream 400s identified as "context window exceeded".
   // "friendly" (default): rewrite to a bilingual hint that points users at
   // codex's /compact command. "passthrough": forward the raw upstream error.

@@ -44,7 +44,7 @@ adjust your assumptions accordingly.
 ## Where things are
 
 - `src/` — TypeScript source for the proxy (Node 18+). Compiled to `dist/`
-  via `npm run build`. Tests in `test/` (vitest, 100 cases).
+  via `npm run build`. Tests in `test/` (vitest, 45 files).
   - `providers/` — Provider abstraction (`types.ts`, `mimo.ts`, `deepseek.ts`,
     `registry.ts`). MiMo-specific behavior (web_search builtin, thinking
     injection, token-plan host inference) is confined to `mimo.ts` hooks; do

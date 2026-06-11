@@ -24,6 +24,9 @@ venv/
 
 config.yaml
 
+# MiMo Code system scratch scripts (memory DB queries)
+.dream_q*.cjs
+
 # desktop shell build artifacts
 package/desktop/dist/
 package/desktop/node_modules/

@@ -672,9 +672,14 @@ async function main(): Promise<void> {
       // 直接把开关关掉、继续启动比 process.exit(2) 让用户每次都得手敲
       // --no-admin 体验好得多。
       const msg = (err as Error).message;
-      const looksLikeBinding = /Could not locate the bindings file|NODE_MODULE_VERSION/i.test(
-        msg
-      );
+      // Widened beyond the original Windows/pnpm case: macOS Apple Silicon adds
+      // arch ("incompatible architecture"), code-signing ("code signature"),
+      // and dlopen/Mach-O failure modes for the bundled-desktop sidecar where a
+      // wrong-arch / wrong-ABI / unsigned better_sqlite3.node won't load.
+      const looksLikeBinding =
+        /Could not locate the bindings file|NODE_MODULE_VERSION|incompatible architecture|code signature|dlopen|mach-o/i.test(
+          msg
+        );
       // eslint-disable-next-line no-console
       console.warn(
         `warning: admin database unavailable at ${cfg.dataDir}: ${msg}\n` +
@@ -687,6 +692,11 @@ async function main(): Promise<void> {
             : "  → 用 --no-admin / MIMO2CODEX_NO_ADMIN=1 消除该告警，或 --data-dir <path> 换可写位置。\n") +
           "代理仍会启动，admin UI + 持久化已禁用 —— 核心 Codex ↔ Chat-Completions 翻译不受影响。"
       );
+      // Stash WHY admin is off so server.ts can serve a clear diagnostic on
+      // /admin/ (a 503 with this message) instead of the misleading `no route`
+      // 404. Only set on this crash path — an intentional --no-admin leaves it
+      // undefined, so that case keeps the historic 404.
+      cfg.adminDisabledReason = { message: msg, likelyBinding: looksLikeBinding, dataDir: cfg.dataDir };
       cfg.adminEnabled = false;
     }
   }
