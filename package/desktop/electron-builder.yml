@@ -56,9 +56,14 @@ mac:
   # everywhere — Finder unzips on double-click, user drags .app to /Applications.
   # If we ever want dmg back, build it locally and `gh release upload --clobber`
   # alongside; the download page already supports either ext.
+  # Arch is driven by the `--x64` / `--arm64` CLI flag, NOT pinned here — both the
+  # CI matrix (build-desktop.yml) and the local packer (pack-desktop-local.mjs)
+  # always pass one. Pinning `arch: [x64, arm64]` here made every mac job build
+  # BOTH arches (the CLI flag didn't override an in-target arch list), producing
+  # a redundant cross-built x64 inside the arm64 job and duplicate release zips.
+  # mac SHIPS BOTH Intel (x64) and Apple Silicon (arm64) — as two separate jobs.
   target:
     - target: zip
-      arch: [x64, arm64]
   hardenedRuntime: false
   gatekeeperAssess: false
   entitlements: "../mac/entitlements.mac.plist"
@@ -73,9 +78,13 @@ mac:
 
 win:
   icon: "../win/icon.ico"
+  # Windows ships x64 (AMD64 / Intel) ONLY — arm64 is intentionally dropped.
+  # better-sqlite3 v12.x has no reliable win32-arm64 prebuild, so a win-arm64
+  # package would bundle a wrong-arch native module and 404 on /admin/. Windows-
+  # on-ARM runs the x64 build under emulation. Arch comes from the `--x64` CLI
+  # flag (CI / pack-desktop-local); nothing requests `--win --arm64`.
   target:
     - target: nsis
-      arch: [x64, arm64]
 
 nsis:
   oneClick: false

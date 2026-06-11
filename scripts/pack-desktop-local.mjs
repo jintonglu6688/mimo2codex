@@ -29,7 +29,10 @@ const flags = {
   cleanEbCache: argv.includes("--clean-eb-cache"),
 };
 
-const VALID_TARGETS = ["win-x64", "win-arm64", "mac-x64", "mac-arm64"];
+// win-arm64 is intentionally unsupported — better-sqlite3 v12.x has no reliable
+// win32-arm64 prebuild, so the package would bundle a wrong-arch native module
+// and 404 on /admin/. Windows-on-ARM runs the x64 build under emulation.
+const VALID_TARGETS = ["win-x64", "mac-x64", "mac-arm64"];
 if (targetFlag && !VALID_TARGETS.includes(targetFlag)) {
   console.error(`Invalid --target=${targetFlag}. Valid: ${VALID_TARGETS.join(", ")}`);
   process.exit(1);

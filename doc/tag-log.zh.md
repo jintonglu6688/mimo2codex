@@ -23,7 +23,7 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 - **[opt]** **构建期校验更严、不再有静默缺口**：`build-sidecar.mjs` 的交叉构建（arm64 runner → x64 包）此前会**静默跳过** ABI smoke test，现改为**醒目告警**并说明 ABI/签名须由打包后门禁在原生机校验；原生 smoke test 现在不只 `require`，还会实跑 `new Database(':memory:')` 并打印 `process.versions.modules`（ABI）+ `process.arch`，方便日后排查 electron 版本漂移。新增 `scripts/verify-release-native.mjs`：对任意桌面产物（.app / win-unpacked / sidecar 目录 / `.node`）解析 Mach-O/PE/ELF 头报告 CPU 架构、比对 `SIDECAR_INFO.json` 记录的构建目标，并打印目标机上验证 ABI + 签名的下一步命令。
 
-- **[doc]** **win-arm64 桌面端目前不打包**（回答"win 几个平台都查一下"）：CI 矩阵刻意不构建 win-arm64（better-sqlite3 v12.x 的 win32-arm64 预编译不可靠，且现有 `probe-prebuild.mjs` 不是可靠的跨架构门禁）。Windows on ARM 用户请用 x64 安装包（在 Win11 ARM 的 x64 仿真下可运行）。已知缺口，已明确记录，不再静默缺失。
+- **[opt]** **桌面端构建架构收敛：win 只出 x64、mac 出 Intel + Apple Silicon 两个包，且不再重复构建**（回答"win 几个平台都查一下"）：(1) **彻底去掉 win-arm64** —— better-sqlite3 v12.x 没有可靠的 win32-arm64 预编译，硬打出来的 win-arm64 包会塞进**错架构**的原生模块、照样 `/admin/` 404（本机实测一个旧的本地 win-arm64 产物，里面的 `better_sqlite3.node` 竟是 x64）。现在在 `electron-builder.yml`（`win.target` 去掉 arm64）和 `pack-desktop-local.mjs`（`VALID_TARGETS` 移除 `win-arm64`）两处都堵死，Windows on ARM 用户用 x64 包（Win11 ARM 的 x64 仿真下可运行）。(2) **mac/win 的 target 不再写死 `arch: [x64, arm64]`**，改由 `--x64`/`--arm64` CLI flag 驱动（CI 矩阵与本地打包都会传）—— 之前写死 arch 会让每个 mac job **同时构建两种架构**（CLI flag 压不过 target 内的 arch 列表），在 arm64 job 里产出多余的交叉 x64、还撞出重复的发布 zip。mac 依旧发布 **Intel（x64）与 Apple Silicon（arm64）两个独立安装包**，但现在每个 job 只构建自己那一种架构。
 
 ---
 

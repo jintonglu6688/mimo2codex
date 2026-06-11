@@ -9,7 +9,11 @@
 #
 # Skipped intentionally:
 #   - win-arm64: better-sqlite3 prebuilds for win32-arm64 are unreliable for
-#     v12.x; adding it back requires Task 7.1.1's probe-prebuild gate.
+#     v12.x — a win-arm64 package bundles a wrong-arch native module and 404s on
+#     /admin/. Dropped at the config level too (electron-builder.yml win.target
+#     has no arm64; pack-desktop-local.mjs VALID_TARGETS excludes win-arm64).
+#     Windows-on-ARM runs the x64 build under emulation. Re-adding it requires a
+#     real win32-arm64 prebuild + the probe-prebuild gate.
 
 name: build-desktop
 
