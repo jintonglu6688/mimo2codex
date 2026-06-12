@@ -183,15 +183,33 @@ describe("paygOnlyBlock (issue #70 — UltraSpeed needs a PAYG key)", () => {
   });
 });
 
-describe("selectProvider runtime override (Pass 0)", () => {
-  it("case G: valid override wins over normal routing", () => {
+describe("selectProvider runtime override (client model takes precedence)", () => {
+  it("a RECOGNIZED client model wins over a runtime override (new priority)", () => {
     initRegistry([]);
     const cfg = makeConfig({
       defaultProviderId: "mimo",
       providers: { mimo: fakeRuntime, deepseek: fakeRuntime },
     });
-    // Client asks for a mimo model, but override forces deepseek.
+    // Codex explicitly asks for a known mimo model. The override must NOT
+    // hijack a model the user configured — client model wins.
     const sel = selectProvider("mimo-v2.5-pro", cfg, {
+      providerId: "deepseek",
+      modelId: "deepseek-v4-pro",
+    });
+    expect(sel.provider.id).toBe("mimo");
+    expect(sel.upstreamModel).toBe("mimo-v2.5-pro");
+    expect(sel.rewriteNotice).toBeNull();
+  });
+
+  it("the override applies when the client model is NOT recognized", () => {
+    initRegistry([]);
+    const cfg = makeConfig({
+      defaultProviderId: "mimo",
+      providers: { mimo: fakeRuntime, deepseek: fakeRuntime },
+    });
+    // Unknown client id → no provider catalog matches → the override is the
+    // next-priority pick (instead of silently rewriting to the default model).
+    const sel = selectProvider("gpt-99-unknown", cfg, {
       providerId: "deepseek",
       modelId: "deepseek-v4-pro",
     });
@@ -200,44 +218,42 @@ describe("selectProvider runtime override (Pass 0)", () => {
     expect(sel.rewriteNotice).toBeNull();
   });
 
-  it("case H: override pointing at unknown providerId is ignored (falls back to normal routing)", () => {
+  it("override with unknown providerId is ignored → unrecognized model falls to default", () => {
     initRegistry([]);
     const cfg = makeConfig({
       defaultProviderId: "mimo",
       providers: { mimo: fakeRuntime, deepseek: null },
     });
-    const sel = selectProvider("mimo-v2.5-pro", cfg, {
+    const sel = selectProvider("gpt-99-unknown", cfg, {
       providerId: "ghost-provider",
       modelId: "ghost-model",
     });
-    // Falls through to Pass 2 (built-in mimo with key).
-    expect(sel.provider.id).toBe("mimo");
+    expect(sel.provider.id).toBe("mimo"); // default fallback
     expect(sel.upstreamModel).toBe("mimo-v2.5-pro");
-    expect(sel.rewriteNotice).toBeNull();
+    expect(sel.rewriteNotice).not.toBeNull();
   });
 
-  it("case I: override at a provider with no runtime is ignored", () => {
+  it("override at a provider with no runtime is ignored → falls to default", () => {
     initRegistry([]);
     const cfg = makeConfig({
       defaultProviderId: "mimo",
-      // deepseek registered but has no api key.
-      providers: { mimo: fakeRuntime, deepseek: null },
+      providers: { mimo: fakeRuntime, deepseek: null }, // deepseek has no key
     });
-    const sel = selectProvider("mimo-v2.5-pro", cfg, {
+    const sel = selectProvider("gpt-99-unknown", cfg, {
       providerId: "deepseek",
       modelId: "deepseek-v4-pro",
     });
     expect(sel.provider.id).toBe("mimo");
-    expect(sel.rewriteNotice).toBeNull();
+    expect(sel.rewriteNotice).not.toBeNull();
   });
 
-  it("case J: override with unknown modelId still routes to that provider, sets rewriteNotice", () => {
+  it("override with an unknown modelId forwards verbatim when the client model is unrecognized", () => {
     initRegistry([]);
     const cfg = makeConfig({
       defaultProviderId: "mimo",
       providers: { mimo: fakeRuntime, deepseek: fakeRuntime },
     });
-    const sel = selectProvider("mimo-v2.5-pro", cfg, {
+    const sel = selectProvider("gpt-99-unknown", cfg, {
       providerId: "deepseek",
       modelId: "deepseek-experimental-99",
     });
@@ -248,7 +264,7 @@ describe("selectProvider runtime override (Pass 0)", () => {
     expect(sel.rewriteNotice?.reason).toContain("runtime override");
   });
 
-  it("case K: override=null preserves all existing behavior (no regression)", () => {
+  it("override=null preserves all existing behavior (no regression)", () => {
     initRegistry([createGenericProvider(companyMimoSpec)]);
     const cfg = makeConfig({
       defaultProviderId: "mimo",

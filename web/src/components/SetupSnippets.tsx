@@ -13,7 +13,7 @@ import {
 import { CopyOutlined } from "@ant-design/icons";
 import { api, type SetupSnippetsResponse } from "../api/client";
 
-type Tab = "auth" | "envkey" | "ccswitch";
+type Tab = "auth" | "preserve" | "envkey" | "ccswitch";
 type Platform = "mac" | "linux" | "windows";
 
 function detectPlatform(): Platform {
@@ -163,6 +163,11 @@ export function SetupSnippets() {
             children: <AuthTab data={data} platform={platform} />,
           },
           {
+            key: "preserve",
+            label: t("tab.preserve"),
+            children: <PreserveTab data={data} platform={platform} />,
+          },
+          {
             key: "envkey",
             label: t("tab.envkey"),
             children: <EnvKeyTab data={data} platform={platform} />,
@@ -216,6 +221,39 @@ function AuthTab({
         >
           placeholder<code>placeholder</code>placeholder
         </Trans>
+      </Typography.Paragraph>
+    </>
+  );
+}
+
+function PreserveTab({
+  data,
+  platform,
+}: {
+  data: SetupSnippetsResponse;
+  platform: Platform;
+}) {
+  const { t } = useTranslation("setup");
+  const authPath = codexPathFor(platform, "auth.json");
+  const tomlPath = codexPathFor(platform, "config.toml");
+  return (
+    <>
+      <Alert
+        type="success"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message={
+          <Trans i18nKey="preserve.info" ns="setup" values={{ path: authPath }}>
+            placeholder<code>placeholder</code>placeholder
+          </Trans>
+        }
+      />
+
+      <Typography.Title level={4}>{t("preserve.tomlTitle", { path: tomlPath })}</Typography.Title>
+      <CodeBlock code={data.bundle.configTomlPreserveLogin} />
+
+      <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+        {t("preserve.note")}
       </Typography.Paragraph>
     </>
   );

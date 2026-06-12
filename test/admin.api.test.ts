@@ -511,6 +511,60 @@ describe("admin REST — Codex 启用 routes", () => {
     expect(backups[0].authBackupOwner).toBe("external");
   });
 
+  it("POST /admin/api/codex-apply preserves a real ChatGPT login by default (no overwrite)", async () => {
+    const { writeFileSync, mkdirSync, readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const codexDir = join(dataDir, ".codex");
+    mkdirSync(codexDir, { recursive: true });
+    // OAuth-style auth.json that `codex login` writes → detected as "external".
+    const oauth = JSON.stringify(
+      { OPENAI_API_KEY: null, tokens: { access_token: "tok", account_id: "acct_1" } },
+      null,
+      2
+    );
+    writeFileSync(join(codexDir, "auth.json"), oauth);
+
+    const apply = await call("POST", "/admin/api/codex-apply", {
+      providerId: "mimo",
+      modelId: "mimo-v2.5-pro",
+    });
+    expect(apply.status).toBe(200);
+    expect((apply.json as { authPreserved: boolean }).authPreserved).toBe(true);
+
+    // The real login auth.json is left byte-for-byte intact; only config.toml
+    // is rewritten to route the model through the proxy.
+    expect(readFileSync(join(codexDir, "auth.json"), "utf-8")).toBe(oauth);
+    const state = await call("GET", "/admin/api/codex-state");
+    expect((state.json as { authJsonOwner: string }).authJsonOwner).toBe("external");
+    expect((state.json as { configTomlText: string }).configTomlText).toContain(
+      "requires_openai_auth = true"
+    );
+    expect((state.json as { configTomlText: string }).configTomlText).toContain(
+      'model_provider = "mimo"'
+    );
+  });
+
+  it("POST /admin/api/codex-apply with preserveLogin:false still overwrites the login (opt-out)", async () => {
+    const { writeFileSync, mkdirSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const codexDir = join(dataDir, ".codex");
+    mkdirSync(codexDir, { recursive: true });
+    writeFileSync(
+      join(codexDir, "auth.json"),
+      JSON.stringify({ OPENAI_API_KEY: "sk-real-openai" })
+    );
+
+    const apply = await call("POST", "/admin/api/codex-apply", {
+      providerId: "mimo",
+      modelId: "mimo-v2.5-pro",
+      preserveLogin: false,
+    });
+    expect(apply.status).toBe(200);
+    expect((apply.json as { authPreserved: boolean }).authPreserved).toBe(false);
+    const state = await call("GET", "/admin/api/codex-state");
+    expect((state.json as { authJsonOwner: string }).authJsonOwner).toBe("mimo2codex");
+  });
+
   it("GET /admin/api/codex-targets returns built-in models with current-override flags", async () => {
     await call("PUT", "/admin/api/active-override", {
       providerId: "mimo",

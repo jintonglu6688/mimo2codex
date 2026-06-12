@@ -48,6 +48,8 @@ import type { GenericProviderSpec } from "../providers/generic.js";
 import { PROVIDER_PRESETS } from "../providers/presets.js";
 import { isAbsolute as pathIsAbsolute } from "node:path";
 import { applyCodex, deleteBackupPair, readCodexState, restoreCodex } from "../codex/state.js";
+import { applyCodexPreserveLogin } from "../codex/preserveLogin.js";
+import { detectAuthJsonOwner } from "../codex/files.js";
 import {
   CodexBusyError,
   listCodexSessions,
@@ -1497,9 +1499,9 @@ async function handleApi(ctx: RouteContext): Promise<void> {
   // codex-apply: write ~/.codex/auth.json + config.toml for (provider, model).
   // Replaces ccswitch. The user must restart Codex for changes to take effect.
   if (req.method === "POST" && pathname === "/admin/api/codex-apply") {
-    let body: { providerId?: unknown; modelId?: unknown };
+    let body: { providerId?: unknown; modelId?: unknown; preserveLogin?: unknown };
     try {
-      body = await readJsonBody<{ providerId?: unknown; modelId?: unknown }>(req);
+      body = await readJsonBody<{ providerId?: unknown; modelId?: unknown; preserveLogin?: unknown }>(req);
     } catch (err) {
       return sendError(res, 400, "invalid_json", (err as Error).message);
     }
@@ -1569,16 +1571,31 @@ async function handleApi(ctx: RouteContext): Promise<void> {
       let authBackup: string | null = null;
       let tomlBackup: string | null = null;
       let authJsonOwnerBefore: "mimo2codex" | "external" | "missing" = "missing";
+      let preserved = false;
+      let authPreserved = false;
 
       if (cfg.authMode !== "on") {
-        const result = applyCodex(target, { host: cfg.host, port: cfg.port });
+        // "Preserve login" keeps a real "Sign in with ChatGPT" auth.json intact
+        // (so OpenAI's official Codex mobile/remote feature keeps working) and
+        // only redirects the model backend. Default ON whenever a real foreign
+        // login is detected; the client may force it either way.
+        const wantPreserve =
+          typeof body.preserveLogin === "boolean"
+            ? body.preserveLogin
+            : detectAuthJsonOwner() === "external";
+        const result = wantPreserve
+          ? applyCodexPreserveLogin(target, { host: cfg.host, port: cfg.port })
+          : applyCodex(target, { host: cfg.host, port: cfg.port });
         backupTs = result.backupTs;
         authBackup = result.authBackup;
         tomlBackup = result.tomlBackup;
         authJsonOwnerBefore = result.authJsonOwnerBefore;
+        preserved = result.preserved;
+        authPreserved = (result as { authPreserved?: boolean }).authPreserved ?? false;
         log.info(
           `codex profile applied via webui: provider=${provider.id} model=${body.modelId} ` +
-            `authJsonOwnerBefore=${result.authJsonOwnerBefore} backupTs=${result.backupTs}`
+            `authJsonOwnerBefore=${result.authJsonOwnerBefore} backupTs=${result.backupTs} ` +
+            `preserveLogin=${wantPreserve} authPreserved=${authPreserved}`
         );
       } else {
         log.info(
@@ -1603,6 +1620,8 @@ async function handleApi(ctx: RouteContext): Promise<void> {
         authBackup,
         tomlBackup,
         authJsonOwnerBefore,
+        preserved,
+        authPreserved,
         restartRequired: true,
         historyId: history.id,
         // In server mode, the UI must show the download CTA instead of the

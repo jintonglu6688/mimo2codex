@@ -15,6 +15,20 @@
     "title": "How it works + prerequisites / manual config snippets",
     "subtitle": "two modes / auth.json / config.toml / env vars / cc-switch — click to expand"
   },
+  "mobileRemote": {
+    "title": "Control this Codex from your phone (official Codex mobile)",
+    "intro": "Want to drive this computer's Codex from your phone? Use OpenAI's official Codex mobile/remote. mimo2codex's job is just to keep your ChatGPT login alive (the 'keep login' apply mode below) so that feature keeps working while the model still runs through the proxy.",
+    "step1Title": "Sign in to ChatGPT in Codex",
+    "step1Desc": "Run `codex login` (Sign in with ChatGPT) on this machine, or make sure you're already logged in.",
+    "step2Title": "Enable a model with 'keep login'",
+    "step2Desc": "Apply a provider/model below — when a real login is detected, mimo2codex keeps it and only redirects the model backend.",
+    "step3Title": "Set up Codex mobile in the desktop app",
+    "step3Desc": "In Codex desktop, open 'Set up Codex mobile' and scan the QR code from the ChatGPT app on your phone (same OpenAI account).",
+    "step4Title": "Drive tasks from your phone",
+    "step4Desc": "Start and approve tasks from the phone; code, files and shell run on this computer — now backed by your mimo2codex provider.",
+    "caveatTitle": "Heads up — this combination is best-effort",
+    "caveatBody": "The remote relay is OpenAI's infrastructure; mimo2codex can't change it. Whether OpenAI's remote mode actually runs the model through your local proxy (versus forcing its own models) isn't documented — test it and verify in the mimo2codex logs that requests hit the proxy."
+  },
   "tabs": {
     "targets": "Targets",
     "thinking": "Thinking & Override",
@@ -22,7 +36,7 @@
   },
   "modesInfo": {
     "applyFile": "<1>Write files and enable</1>: physically writes ~/.codex/auth.json and ~/.codex/config.toml, same as ccswitch. <3>Requires a Codex restart</3>. Original files are auto-backed up and one-click restorable.",
-    "runtimeOverride": "<1>Runtime override only</1>: stores the active (provider, model) inside mimo2codex; selectProvider prefers it during routing. <3>No Codex restart needed</3>, but Codex must already connect to mimo2codex (first-time setup still needs the option above)."
+    "runtimeOverride": "<1>Runtime override only</1>: stores the active (provider, model) inside mimo2codex; selectProvider uses it as a fallback when the client's requested model isn't recognized by any provider — an explicitly-configured model still wins. <3>No Codex restart needed</3>, but Codex must already connect to mimo2codex (first-time setup still needs the option above)."
   },
   "state": {
     "title": "Current state",
@@ -73,7 +87,7 @@
   },
   "targets": {
     "title": "Available combinations",
-    "externalWarn": "Your current ~/.codex/auth.json was not written by mimo2codex (probably a real OpenAI login or another tool). 'Write files and enable' will back it up first, then overwrite — restore is always available.",
+    "externalWarn": "Your current ~/.codex/auth.json is a real login (likely Sign in with ChatGPT). 'Write files and enable' now keeps it intact by default and only redirects the model — your ChatGPT login (and OpenAI's official Codex mobile/remote) keeps working. You can still opt to overwrite it in the confirm dialog.",
     "empty": "No model combinations available.",
     "testAll": "Test all",
     "testAllBusy": "testing…",
@@ -147,6 +161,7 @@
   "msg": {
     "applied": "Wrote {{provider}} / {{model}}. {{note}}Fully quit and restart Codex for the new config to take effect.",
     "appliedPreserved": "Backed up your original Codex config (ts={{ts}}, 🔒 kept permanently — won't be pruned by later switches). ",
+    "appliedPreservedLogin": "Kept your ChatGPT login intact — only the model backend was redirected to mimo2codex (auth.json untouched; ts={{ts}} backup available). ",
     "appliedBackedUp": "Original files backed up (ts={{ts}}). ",
     "overrideSet": "Runtime override set to {{provider}} / {{model}}. No Codex restart needed — the next request will pick it up.",
     "overrideCleared": "Runtime override cleared — routing falls back to default behavior.",
@@ -159,6 +174,11 @@
     "applyP2": "Proceeding will back it up (auth.json.bak.<ts>) and write a mimo2codex placeholder key. You can restore from 'Backup & restore' below.",
     "applyTarget": "Target",
     "applyConfirmBtn": "Back up & overwrite",
+    "preserveTitle": "Keep your ChatGPT login & enable?",
+    "preserveP1": "Your ~/.codex/auth.json is a real login (likely Sign in with ChatGPT). mimo2codex will keep it exactly as-is and only rewrite config.toml to route the model through the proxy.",
+    "preserveP2": "Your ChatGPT login stays valid, so OpenAI's official Codex mobile/remote keeps working. The current config.toml is backed up first (one-click restore below).",
+    "preserveConfirmBtn": "Keep login & enable",
+    "preserveOverwriteOpt": "Overwrite the login instead (write a placeholder key — logs you out of ChatGPT)",
     "restoreTitle": "Restore backup ts={{ts}}?",
     "restoreBody": "The current auth.json + config.toml will NOT be backed up again.",
     "restoreMissingAuth": "auth.json (did not exist at the time → restore will delete the current auth.json)",

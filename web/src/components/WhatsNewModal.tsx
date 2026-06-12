@@ -155,6 +155,21 @@ function ReleaseSection({
         </Typography.Paragraph>
       )}
 
+      {note.image && (
+        <div style={{ margin: "4px 0 6px", textAlign: "center" }}>
+          <img
+            src={note.image.src}
+            alt={pick(note.image.alt, lang)}
+            style={{
+              maxWidth: "100%",
+              maxHeight: 440,
+              borderRadius: 10,
+              border: "1px solid var(--ant-color-border-secondary, #f0f0f0)",
+            }}
+          />
+        </div>
+      )}
+
       <GroupedHighlights
         highlights={note.highlights}
         lang={lang}

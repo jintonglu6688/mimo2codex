@@ -4,6 +4,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Collapse,
   Input,
   Modal,
@@ -28,6 +29,7 @@ import { ProviderBlock } from "./ProviderBlock";
 import { RuntimeOverrideCard } from "./RuntimeOverrideCard";
 import { BackupCard } from "./BackupCard";
 import { HistoryPanel } from "./HistoryPanel";
+import { MobileRemoteCard } from "./MobileRemoteCard";
 import { useAuth } from "../../contexts/AuthContext";
 
 export function CodexEnable() {
@@ -180,7 +182,7 @@ export function CodexEnable() {
     return `${target.providerId}::${target.modelId}`;
   }
 
-  async function doApply(target: CodexTarget) {
+  async function doApply(target: CodexTarget, opts?: { preserveLogin?: boolean }) {
     setBusy({ kind: "apply", key: rowKey(target) });
     setError(null);
     setSuccess(null);
@@ -188,9 +190,12 @@ export function CodexEnable() {
       const resp = await api.codexApply({
         providerId: target.providerId,
         modelId: target.modelId,
+        ...(opts?.preserveLogin === undefined ? {} : { preserveLogin: opts.preserveLogin }),
       });
       let note = "";
-      if (resp.preserved) {
+      if (resp.authPreserved) {
+        note = t("msg.appliedPreservedLogin", { ts: resp.backupTs });
+      } else if (resp.preserved) {
         note = t("msg.appliedPreserved", { ts: resp.backupTs });
       } else if (resp.authBackup || resp.tomlBackup) {
         note = t("msg.appliedBackedUp", { ts: resp.backupTs });
@@ -216,24 +221,36 @@ export function CodexEnable() {
 
   function onApplyClick(target: CodexTarget) {
     if (state?.authJsonOwner === "external") {
+      // A real "Sign in with ChatGPT" login is present. Default to PRESERVING
+      // it — keep auth.json, only redirect the model — so OpenAI's official
+      // Codex mobile/remote keeps working. The checkbox opts back into the
+      // legacy overwrite (writes a placeholder key, logs you out).
+      let overwrite = false;
       modal.confirm({
-        width: 540,
-        title: t("confirm.applyTitle"),
-        okButtonProps: { danger: true },
-        okText: t("confirm.applyConfirmBtn"),
+        width: 560,
+        icon: null,
+        title: t("confirm.preserveTitle"),
+        okText: t("confirm.preserveConfirmBtn"),
         cancelText: tCommon("cancel"),
         content: (
           <div>
-            <p>{t("confirm.applyP1")}</p>
-            <p>{t("confirm.applyP2")}</p>
+            <p>{t("confirm.preserveP1")}</p>
+            <p>{t("confirm.preserveP2")}</p>
             <p>
               {t("confirm.applyTarget")}:{" "}
               <strong>{target.providerDisplayName}</strong> /{" "}
               <code>{target.modelId}</code>
             </p>
+            <Checkbox
+              onChange={(e) => {
+                overwrite = e.target.checked;
+              }}
+            >
+              {t("confirm.preserveOverwriteOpt")}
+            </Checkbox>
           </div>
         ),
-        onOk: () => doApply(target),
+        onOk: () => doApply(target, { preserveLogin: !overwrite }),
       });
       return;
     }
@@ -430,6 +447,8 @@ export function CodexEnable() {
           ]}
         />
       </div>
+
+      <MobileRemoteCard />
 
       <div ref={tabsRef}>
         <Tabs

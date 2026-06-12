@@ -6,6 +6,7 @@
   "defaultTag": "(default)",
   "tab": {
     "auth": "Option 1 · auth.json + config.toml (recommended)",
+    "preserve": "Keep ChatGPT login · config.toml only",
     "envkey": "Option 2 · env-key (CLI only)",
     "ccswitch": "Option 3 · cc-switch"
   },
@@ -15,6 +16,11 @@
     "step2": "Step 2 · Append to {{path}}",
     "step3Title": "Step 3 · Fully quit and restart Codex",
     "step3Body": "Codex desktop must fully quit (click Quit in the tray/menubar icon) so it re-reads auth.json on next launch. Then choose <1>{{label}}</1> as the provider inside Codex."
+  },
+  "preserve": {
+    "info": "Keeps your existing <1>{{path}}</1> (your Sign in with ChatGPT login) completely untouched — only config.toml is changed to route the model through mimo2codex. Use this so OpenAI's official Codex mobile/remote keeps working.",
+    "tomlTitle": "Append / merge into {{path}}",
+    "note": "Your ChatGPT OAuth token stays in auth.json and is attached to proxy requests via requires_openai_auth = true; mimo2codex ignores it and forwards to your real upstream. To drive this Codex from your phone, set up OpenAI's official 'Codex mobile' in the desktop app — it needs the very login this option preserves."
   },
   "envkey": {
     "info": "This option leaves your existing <1>{{path}}</1> untouched and authenticates via the <3>MIMO2CODEX_KEY</3> env var. <5>CLI only</5> — Codex desktop launched from Finder/Start Menu doesn't inherit shell env.",

@@ -15,6 +15,20 @@
     "title": "工作原理 + 先决条件 / 手动配置片段",
     "subtitle": "两种机制 / auth.json / config.toml / 环境变量 / cc-switch — 点击展开查看"
   },
+  "mobileRemote": {
+    "title": "用手机操作这台电脑的 Codex（官方 Codex 手机端）",
+    "intro": "想用手机操作这台电脑上的 Codex？用 OpenAI 官方的 Codex 手机端/远程功能。mimo2codex 要做的只是保住你的 ChatGPT 登录（下面的「保留登录」启用方式），让这个功能继续可用，同时模型仍然走代理。",
+    "step1Title": "在 Codex 里登录 ChatGPT",
+    "step1Desc": "在这台机器上执行 `codex login`（Sign in with ChatGPT），或确认你已经登录。",
+    "step2Title": "用「保留登录」启用一个模型",
+    "step2Desc": "在下面启用某个 provider/模型 —— 检测到真实登录时，mimo2codex 会保留它，只把模型后端重定向到代理。",
+    "step3Title": "在桌面端设置 Codex 手机端",
+    "step3Desc": "在 Codex 桌面端打开「Set up Codex mobile」，用手机 ChatGPT App 扫码（需同一个 OpenAI 账号）。",
+    "step4Title": "在手机上派发任务",
+    "step4Desc": "在手机上发起、批准任务；代码、文件、shell 都在这台电脑上执行 —— 而背后的模型已经是你的 mimo2codex 上游。",
+    "caveatTitle": "提醒 —— 这个组合是尽力而为",
+    "caveatBody": "远程中继是 OpenAI 的基础设施，mimo2codex 改不了。官方远程模式到底会不会把模型请求走你本地的代理（还是被强制用 OpenAI 自家模型）没有官方文档说明 —— 请实测，并在 mimo2codex 日志里确认请求确实打到了代理。"
+  },
   "tabs": {
     "targets": "可启用模型",
     "thinking": "思考与运行时覆盖",
@@ -22,7 +36,7 @@
   },
   "modesInfo": {
     "applyFile": "<1>写入文件并启用</1>：物理写入 ~/.codex/auth.json 和 ~/.codex/config.toml，与 ccswitch 行为一致。<3>需要重启 Codex</3> 才能生效。原文件会被自动备份，可一键恢复。",
-    "runtimeOverride": "<1>仅运行时覆盖</1>：把激活的 (provider, model) 存到 mimo2codex 内部，selectProvider 路由时优先用它。<3>无需重启 Codex</3>，但要求 Codex 已经能连到 mimo2codex（即首次接入仍需用上面那种方式）。"
+    "runtimeOverride": "<1>仅运行时覆盖</1>：把激活的 (provider, model) 存到 mimo2codex 内部；当客户端请求的模型不被任何 provider 识别时，selectProvider 用它兜底——已识别/已配置的模型仍然优先。<3>无需重启 Codex</3>，但要求 Codex 已经能连到 mimo2codex（即首次接入仍需用上面那种方式）。"
   },
   "state": {
     "title": "当前状态",
@@ -73,7 +87,7 @@
   },
   "targets": {
     "title": "可启用组合",
-    "externalWarn": "当前 ~/.codex/auth.json 不是 mimo2codex 写入的（可能是真 OpenAI 登录或其他工具）。点「写入文件并启用」会先自动备份再覆盖，恢复随时可做。",
+    "externalWarn": "当前 ~/.codex/auth.json 是真实登录（很可能是 Sign in with ChatGPT）。现在点「写入文件并启用」默认会保留它不动，只把模型重定向 —— 你的 ChatGPT 登录（以及 OpenAI 官方的 Codex 手机端/远程）继续可用。如确需覆盖，可在确认弹窗里勾选。",
     "empty": "没有可启用的模型组合。",
     "testAll": "一键探测全部",
     "testAllBusy": "探测中…",
@@ -147,6 +161,7 @@
   "msg": {
     "applied": "已写入 {{provider}} / {{model}}。{{note}}请完全退出并重启 Codex 让新配置生效。",
     "appliedPreserved": "已备份你原来的 Codex 配置（ts={{ts}}，🔒 永久保留，不会因后续切换被清理）。",
+    "appliedPreservedLogin": "已保留你的 ChatGPT 登录不动 —— 只把模型后端重定向到 mimo2codex（auth.json 未改写；ts={{ts}} 已备份可恢复）。",
     "appliedBackedUp": "已备份原文件（ts={{ts}}）。",
     "overrideSet": "运行时覆盖已设置为 {{provider}} / {{model}}。无需重启 Codex，下一次请求即生效。",
     "overrideCleared": "运行时覆盖已清除，路由回到默认行为。",
@@ -159,6 +174,11 @@
     "applyP2": "继续会自动备份它（auth.json.bak.<时间戳>）并写入 mimo2codex 占位 key。之后可通过下方「备份与恢复」一键恢复。",
     "applyTarget": "目标",
     "applyConfirmBtn": "备份并覆盖",
+    "preserveTitle": "保留 ChatGPT 登录并启用？",
+    "preserveP1": "当前 ~/.codex/auth.json 是真实登录（很可能是 Sign in with ChatGPT）。mimo2codex 会原样保留它，只改写 config.toml，把模型路由到代理。",
+    "preserveP2": "你的 ChatGPT 登录依然有效，OpenAI 官方的 Codex 手机端/远程功能可继续使用。当前 config.toml 会先自动备份（下方可一键恢复）。",
+    "preserveConfirmBtn": "保留登录并启用",
+    "preserveOverwriteOpt": "改为覆盖登录（写入占位 key —— 会把你登出 ChatGPT）",
     "restoreTitle": "恢复到备份 ts={{ts}}？",
     "restoreBody": "当前 auth.json + config.toml 不会再次备份。",
     "restoreMissingAuth": "auth.json（当时不存在 → 恢复时会删除当前的 auth.json）",

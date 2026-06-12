@@ -6,6 +6,7 @@
   "defaultTag": "(默认)",
   "tab": {
     "auth": "方法 1：修改 auth.json + config.toml（推荐）",
+    "preserve": "保留 ChatGPT 登录 · 仅改 config.toml",
     "envkey": "方法 2：env-key（仅 Codex CLI）",
     "ccswitch": "方法 3：cc-switch"
   },
@@ -15,6 +16,11 @@
     "step2": "步骤 2 · 追加到 {{path}}",
     "step3Title": "步骤 3 · 完全退出并重启 Codex",
     "step3Body": "Codex 桌面端必须完全退出（任务栏/菜单栏图标点 Quit），重新启动后才能读取新的 auth.json。然后在 Codex 里选择 <1>{{label}}</1> 这个 provider。"
+  },
+  "preserve": {
+    "info": "完全保留你现有的 <1>{{path}}</1>（也就是你的 Sign in with ChatGPT 登录）不动 —— 只改 config.toml，把模型路由到 mimo2codex。想让 OpenAI 官方的 Codex 手机端/远程功能继续可用，就用这个方法。",
+    "tomlTitle": "追加 / 合并到 {{path}}",
+    "note": "你的 ChatGPT OAuth token 留在 auth.json 里，通过 requires_openai_auth = true 作为 bearer 附到代理请求上；mimo2codex 忽略它并转发到你的真实上游。想用手机操作这台 Codex，在桌面端按 OpenAI 官方流程设置「Codex 手机端」即可 —— 它正需要这个方法所保留的登录。"
   },
   "envkey": {
     "info": "这个方法保留你现有的 <1>{{path}}</1> 不动，通过环境变量 <3>MIMO2CODEX_KEY</3> 鉴权。<5>仅 Codex CLI 生效</5> —— 桌面端从 Finder/开始菜单启动时不继承 shell env。",

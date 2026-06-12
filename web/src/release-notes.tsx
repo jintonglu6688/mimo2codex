@@ -14,6 +14,8 @@
 // so the modal stays scannable. We keep ONLY the latest version's entry.
 
 import type { ReactNode } from "react";
+// Bundled by Vite → emitted under dist/web/assets/, served at /admin/assets/*.
+import phoneDesktopImg from "./assets/phone-desktop.jpg";
 
 export interface BilingualText {
   en: string;
@@ -39,6 +41,8 @@ export interface ReleaseNote {
   date: string;    // "2026-05-21" ISO
   title: BilingualText;
   summary?: BilingualText;
+  /** Optional hero image for the release (shown under the summary). */
+  image?: { src: string; alt: BilingualText };
   highlights: ReleaseHighlight[];
 }
 
@@ -51,14 +55,53 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     version: "0.5.27",
     date: "2026-06-11",
     title: {
-      en: "Desktop: clearer error when the admin DB can't load",
-      zh: "桌面端:管理后台数据库加载失败时给出明确错误",
+      en: "Keep your ChatGPT login + smarter model routing",
+      zh: "保留 ChatGPT 登录 + 更智能的模型路由",
     },
     summary: {
-      en: "Fixes the Apple-Silicon desktop /admin/ 404 and a blank Base URL leaving the upstream host empty.",
-      zh: "修复 Apple Silicon 桌面端 /admin/ 404,以及 Base URL 留空导致上游主机为空的问题。",
+      en: "Stay signed into ChatGPT while running mimo2codex models (and drive Codex from your phone); the client's requested model is now honored over a runtime override; plus desktop admin-DB and Base-URL fixes.",
+      zh: "保持 ChatGPT 登录的同时使用 mimo2codex 模型(还能用手机操作电脑上的 Codex);客户端传入的模型现在优先于运行时覆盖;另含桌面端管理后台数据库与 Base URL 修复。",
+    },
+    image: {
+      src: phoneDesktopImg,
+      alt: {
+        en: "Codex on a phone driving the desktop while using a custom mimo2codex model (config.toml) — the ChatGPT login is preserved.",
+        zh: "手机上的 Codex 操作电脑端,同时使用自定义的 mimo2codex 模型(config.toml)——ChatGPT 登录被保留。",
+      },
     },
     highlights: [
+      {
+        kind: "new",
+        title: {
+          en: "Keep your ChatGPT login while the model runs through mimo2codex",
+          zh: "保留 ChatGPT 登录的同时,模型走 mimo2codex 代理",
+        },
+        description: {
+          en: "You can now stay signed into your real ChatGPT account and route the model through mimo2codex at the same time — the prerequisite for OpenAI's official \"Codex mobile/remote\" (driving this computer's Codex from your phone). Enabling a provider on a machine with a real login now keeps ~/.codex/auth.json untouched and only redirects the model, instead of overwriting your login; a checkbox still lets you overwrite if you prefer. Heads up: whether OpenAI's remote mode actually uses the proxy backend is undocumented — test it and confirm in the logs.",
+          zh: "现在你可以一边保持真实 ChatGPT 账号登录,一边把模型走 mimo2codex 代理 —— 这正是用 OpenAI 官方「Codex 手机端/远程」(用手机操作这台电脑上的 Codex)的前提。在已登录的机器上启用 provider,现在会保留 ~/.codex/auth.json 不动、只重定向模型,而不再覆盖你的登录;如需覆盖仍可在弹窗里勾选。注意:官方远程模式到底会不会用代理后端没有官方文档,请实测并在日志里确认。",
+        },
+        location: {
+          en: "Codex Enable page → \"Control this Codex from your phone\" card + the confirm dialog when enabling",
+          zh: "「Codex 启用」页 → 「用手机操作这台 Codex」卡片,以及启用时的确认弹窗",
+        },
+        ctaLabel: { en: "Open Codex Enable", zh: "打开 Codex 启用" },
+        ctaPath: "/codex",
+      },
+      {
+        kind: "improved",
+        title: {
+          en: "Your model choice now beats a runtime override",
+          zh: "你传入的模型现在优先于运行时覆盖",
+        },
+        description: {
+          en: "When Codex requests a model mimo2codex recognizes (a built-in, or a configured provider model), that model is now used even if you've set a runtime override — the override no longer hijacks an explicitly-chosen model. The override still kicks in (before the default fallback) for model ids no provider recognizes. Priority: your client model → runtime override → config default.",
+          zh: "当 Codex 请求的模型是 mimo2codex 能识别的(内置或已配置的 provider 模型)时,现在会直接用这个模型,即使你设了运行时覆盖——覆盖不再劫持你明确选定的模型。对于没有 provider 能识别的模型 id,覆盖仍会在默认兜底之前生效。优先级:客户端模型 → 运行时覆盖 → 配置默认。",
+        },
+        location: {
+          en: "Codex Enable page → Thinking & Override tab (runtime override is now a fallback)",
+          zh: "「Codex 启用」页 → 思考与运行时覆盖 标签(运行时覆盖现在是兜底)",
+        },
+      },
       {
         kind: "fixed",
         title: {

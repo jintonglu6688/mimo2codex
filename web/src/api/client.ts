@@ -63,6 +63,8 @@ export interface SetupSnippetBundle {
   authJson: string;
   configToml: string;
   configTomlEnvKey: string;
+  // config.toml-only variant that keeps an existing ChatGPT login intact.
+  configTomlPreserveLogin: string;
   ccSwitchAuthJson: string;
   ccSwitchConfigToml: string;
 }
@@ -346,6 +348,10 @@ export interface CodexApplyResponse {
   tomlBackup: string | null;
   authJsonOwnerBefore: "mimo2codex" | "external" | "missing";
   preserved?: boolean;
+  // True when a real "Sign in with ChatGPT" auth.json was kept intact (the
+  // model was redirected without logging the user out). Drives the UI's
+  // "登录已保留" success copy.
+  authPreserved?: boolean;
   restartRequired: boolean;
   historyId?: number;
   bundleUrl?: string | null;
@@ -640,7 +646,7 @@ export const api = {
   clearAllLogs: () => request<{ removed: number }>("DELETE", "/logs?all=1"),
   codexState: () => request<CodexState>("GET", "/codex-state"),
   codexTargets: () => request<CodexTargetsResponse>("GET", "/codex-targets"),
-  codexApply: (body: { providerId: string; modelId: string }) =>
+  codexApply: (body: { providerId: string; modelId: string; preserveLogin?: boolean }) =>
     request<CodexApplyResponse>("POST", "/codex-apply", body),
   codexRestore: (ts: number) =>
     request<{ ok: boolean; restartRequired: boolean }>("POST", "/codex-restore", { ts }),

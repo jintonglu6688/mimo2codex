@@ -364,33 +364,14 @@ export function selectProvider(
   cfg: Config,
   override?: ProviderOverride | null
 ): SelectedProvider {
-  // Pass 0: runtime override set via the webui. Always wins over normal
-  // routing — but only when both the provider is registered AND has a
-  // runtime (api key) available. Stale overrides (provider removed from
-  // providers.json after restart, or env key dropped) fall through to the
-  // normal 3-pass logic so requests don't hard-fail on a bad override.
-  if (override && override.providerId && override.modelId) {
-    const p = PROVIDERS[override.providerId as keyof typeof PROVIDERS];
-    const runtime = p ? cfg.providers[p.id] : null;
-    if (p && runtime) {
-      const resolved = p.resolveModel(override.modelId);
-      const upstreamModel = resolved?.id ?? override.modelId;
-      return {
-        provider: p,
-        runtime,
-        upstreamModel,
-        modelInfo: resolved ?? p.resolveModel(p.defaultModel),
-        rewriteNotice: resolved
-          ? null
-          : {
-              from: clientModel,
-              to: upstreamModel,
-              reason: `runtime override → ${p.id}/${override.modelId} (model id not in provider catalog, forwarded verbatim)`,
-            },
-      };
-    }
-    // override unusable → fall through silently
-  }
+  // Routing priority: the client's REQUESTED model wins first.
+  //   1) Pass 1 — user-declared generic providers that recognize the model
+  //   2) Pass 2 — built-in providers (mimo, deepseek) that recognize the model
+  //   3) runtime override (webui) — applied only when no catalog recognizes it
+  //   4) default provider — bare fallback
+  // An explicitly-configured Codex model thus takes precedence over a standing
+  // runtime override; the override is the smart fallback for model ids that no
+  // provider catalog claims (instead of silently rewriting to the default).
 
   // Pass 1: user-declared generic providers (non-empty models, has key).
   // Generics take priority over built-ins so that an internal MiMo/DeepSeek
@@ -440,6 +421,34 @@ export function selectProvider(
             reason: "matched provider catalog but unknown model id → using provider's defaultModel",
           },
     };
+  }
+
+  // Pass 3: runtime override (set via the webui) — reached only when no
+  // registered+keyed provider recognized the client's model. It's the
+  // next-priority pick before the bare default, honored only when the override
+  // provider is registered AND has a runtime (api key); a stale override falls
+  // through to the default below.
+  if (override && override.providerId && override.modelId) {
+    const p = PROVIDERS[override.providerId as keyof typeof PROVIDERS];
+    const runtime = p ? cfg.providers[p.id] : null;
+    if (p && runtime) {
+      const resolved = p.resolveModel(override.modelId);
+      const upstreamModel = resolved?.id ?? override.modelId;
+      return {
+        provider: p,
+        runtime,
+        upstreamModel,
+        modelInfo: resolved ?? p.resolveModel(p.defaultModel),
+        rewriteNotice: resolved
+          ? null
+          : {
+              from: clientModel,
+              to: upstreamModel,
+              reason: `runtime override → ${p.id}/${override.modelId} (model id not in provider catalog, forwarded verbatim)`,
+            },
+      };
+    }
+    // override unusable → fall through to the default provider
   }
 
   // No provider with a key matches → fall back to the default provider.

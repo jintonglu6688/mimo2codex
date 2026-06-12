@@ -1,6 +1,7 @@
 import { byShortcut, PROVIDERS } from "../providers/registry.js";
 import type { ProviderId } from "../providers/types.js";
 import type { ProviderTomlPatch } from "../codex/tomlMerge.js";
+import { configSnippetPreserveLogin } from "./preserveLoginSnippet.js";
 
 // Snippet target shared between CLI `print-config` / `print-cc-switch` and
 // the admin webui's Setup page. Kept as a flat shape so the webui can JSON
@@ -240,6 +241,9 @@ export interface SnippetBundle {
   authJson: string;
   configToml: string;
   configTomlEnvKey: string;
+  // config.toml-only variant that keeps an existing ChatGPT login intact
+  // (see src/setup/preserveLoginSnippet.ts).
+  configTomlPreserveLogin: string;
   ccSwitchAuthJson: string;
   ccSwitchConfigToml: string;
 }
@@ -252,6 +256,7 @@ export function buildSnippetBundle(providerHint: string | undefined, cfg: HostPo
     authJson: ccAuth,
     configToml: configSnippet(cfg, target),
     configTomlEnvKey: configSnippetEnvKey(cfg, target),
+    configTomlPreserveLogin: configSnippetPreserveLogin(cfg, target),
     ccSwitchAuthJson: ccAuth,
     ccSwitchConfigToml: ccToml,
   };
