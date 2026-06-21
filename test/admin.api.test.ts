@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { createServer, type Server } from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os, { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeDb, openDb } from "../src/db/index.js";
@@ -11,6 +11,8 @@ import { insertLog, type ChatLogEntry } from "../src/db/logs.js";
 let dataDir: string;
 let server: Server;
 let port: number;
+let originalQwenApiKey: string | undefined;
+let originalQwenBaseUrl: string | undefined;
 
 const cfg: Config = {
   host: "127.0.0.1",
@@ -36,6 +38,19 @@ const cfg: Config = {
 };
 
 beforeEach(async () => {
+  originalQwenApiKey = process.env.QWEN_API_KEY;
+  originalQwenBaseUrl = process.env.QWEN_BASE_URL;
+  delete process.env.QWEN_API_KEY;
+  delete process.env.QWEN_BASE_URL;
+  cfg.defaultProviderId = "mimo";
+  cfg.providers = {
+    mimo: {
+      baseUrl: "https://api.xiaomimimo.com/v1",
+      apiKey: "sk-test",
+      flags: { isTokenPlan: false },
+    },
+    deepseek: null,
+  };
   dataDir = mkdtempSync(join(tmpdir(), "m2c-admin-test-"));
   openDb(dataDir);
   cfg.dataDir = dataDir;
@@ -51,6 +66,10 @@ afterEach(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   closeDb();
   rmSync(dataDir, { recursive: true, force: true });
+  if (originalQwenApiKey === undefined) delete process.env.QWEN_API_KEY;
+  else process.env.QWEN_API_KEY = originalQwenApiKey;
+  if (originalQwenBaseUrl === undefined) delete process.env.QWEN_BASE_URL;
+  else process.env.QWEN_BASE_URL = originalQwenBaseUrl;
 });
 
 async function call(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
