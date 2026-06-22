@@ -633,6 +633,14 @@ export const api = {
     request<{ enabled: boolean; model: string }>("GET", "/vision-fallback"),
   setVisionFallback: (body: { enabled?: boolean; model?: string }) =>
     request<{ ok: boolean }>("PUT", "/vision-fallback", body),
+  webSearchState: () =>
+    request<{
+      effective: boolean;
+      cliOverride: boolean | null;
+      setting: boolean;
+    }>("GET", "/web-search-state"),
+  setWebSearch: (enabled: boolean) =>
+    request<{ ok: boolean }>("PUT", "/web-search-state", { enabled }),
   logSettings: () => request<LogSettingsResponse>("GET", "/log-settings"),
   setSilentRewrite: (silentRewrite: boolean) =>
     request<{ ok: boolean }>("PUT", "/log-settings", { silentRewrite }),

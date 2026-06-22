@@ -69,6 +69,11 @@ export function CodexEnable() {
   const [visionFallbackEnabled, setVisionFallbackEnabled] = useState<boolean | null>(null);
   const [visionFallbackModel, setVisionFallbackModel] = useState<string>("mimo-v2.5");
   const [visionFallbackSaving, setVisionFallbackSaving] = useState<boolean>(false);
+  // mimo.webSearchEnabled：是否向上游转发 web_search。默认关（MiMo 联网插件单独计费）。
+  // null = 加载中；CLI flag (--web-search / env) 优先时锁定开关并提示。
+  const [webSearchEnabled, setWebSearchEnabled] = useState<boolean | null>(null);
+  const [webSearchCliOverridden, setWebSearchCliOverridden] = useState<boolean>(false);
+  const [webSearchSaving, setWebSearchSaving] = useState<boolean>(false);
 
   async function doProbe(target: CodexTarget) {
     const key = `${target.providerId}::${target.modelId}`;
@@ -100,11 +105,12 @@ export function CodexEnable() {
   async function load() {
     try {
       setError(null);
-      const [s, ts, think, vf] = await Promise.all([
+      const [s, ts, think, vf, ws] = await Promise.all([
         api.codexState(),
         api.codexTargets(),
         api.thinkingState().catch(() => null), // 老后端没此端点时降级
         api.visionFallback().catch(() => null), // 老后端没此端点时降级
+        api.webSearchState().catch(() => null), // 老后端没此端点时降级
       ]);
       setState(s);
       setTargetsResp(ts);
@@ -118,6 +124,12 @@ export function CodexEnable() {
         setVisionFallbackModel(vf.model);
       } else {
         setVisionFallbackEnabled(false);
+      }
+      if (ws) {
+        setWebSearchEnabled(ws.effective);
+        setWebSearchCliOverridden(ws.cliOverride !== null);
+      } else {
+        setWebSearchEnabled(false);
       }
     } catch (err) {
       setError((err as Error).message);
@@ -171,6 +183,18 @@ export function CodexEnable() {
       setError((err as Error).message);
     } finally {
       setVisionFallbackSaving(false);
+    }
+  }
+
+  async function doToggleWebSearch(enabled: boolean): Promise<void> {
+    setWebSearchSaving(true);
+    try {
+      await api.setWebSearch(enabled);
+      setWebSearchEnabled(enabled);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setWebSearchSaving(false);
     }
   }
 
@@ -647,6 +671,50 @@ export function CodexEnable() {
                       >
                         {t("visionFallback.hint")}
                       </Typography.Paragraph>
+                    </Card>
+                  )}
+                  {webSearchEnabled !== null && (
+                    <Card
+                      size="small"
+                      title={t("webSearch.title")}
+                      style={{ marginBottom: 12 }}
+                    >
+                      <Alert
+                        type="info"
+                        showIcon
+                        message={t("webSearch.scopeNote")}
+                        style={{ marginBottom: 8 }}
+                      />
+                      <Space wrap>
+                        <Switch
+                          size="small"
+                          checked={!!webSearchEnabled}
+                          loading={webSearchSaving}
+                          disabled={webSearchCliOverridden}
+                          onChange={(enabled) => void doToggleWebSearch(enabled)}
+                          checkedChildren={t("thinking.switchOn")}
+                          unCheckedChildren={t("thinking.switchOff")}
+                        />
+                        <span>
+                          {webSearchEnabled
+                            ? t("webSearch.statusOn")
+                            : t("webSearch.statusOff")}
+                        </span>
+                      </Space>
+                      <Typography.Paragraph
+                        type="secondary"
+                        style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}
+                      >
+                        {t("webSearch.hint")}
+                      </Typography.Paragraph>
+                      {webSearchCliOverridden && (
+                        <Alert
+                          type="warning"
+                          showIcon
+                          message={t("webSearch.cliOverride")}
+                          style={{ marginTop: 8 }}
+                        />
+                      )}
                     </Card>
                   )}
                   {state && (

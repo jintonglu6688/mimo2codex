@@ -1015,6 +1015,37 @@ async function handleApi(ctx: RouteContext): Promise<void> {
     return sendError(res, 405, "method_not_allowed", "use GET or PUT");
   }
 
+  // GET /admin/api/web-search-state
+  // PUT /admin/api/web-search-state body { enabled: boolean }
+  // Controls whether mimo2codex forwards the web_search tool to the upstream.
+  // OFF by default — MiMo's Web Search Plugin is separately billed and off by
+  // default; forwarding without it 400s. CLI flag / env (--web-search /
+  // MIMO2CODEX_WEB_SEARCH) overrides the DB setting when set.
+  if (pathname === "/admin/api/web-search-state") {
+    if (req.method === "GET") {
+      const cliOverride = cfg.webSearchFromCli ?? null;
+      const setting = (() => {
+        try {
+          return getSetting("mimo.webSearchEnabled") === "1";
+        } catch {
+          return false;
+        }
+      })();
+      const effective = cliOverride !== null ? cliOverride : setting;
+      return sendJson(res, 200, { effective, cliOverride, setting });
+    }
+    if (req.method === "PUT") {
+      const body = await readJsonBody<{ enabled?: unknown }>(req);
+      if (typeof body.enabled !== "boolean") {
+        return sendError(res, 400, "invalid_body", "body must include enabled (boolean)");
+      }
+      setSetting("mimo.webSearchEnabled", body.enabled ? "1" : "0");
+      log.info(`mimo.webSearchEnabled set to ${body.enabled} via admin UI`);
+      return sendJson(res, 200, { ok: true });
+    }
+    return sendError(res, 405, "method_not_allowed", "use GET or PUT");
+  }
+
   // GET/PUT /admin/api/vision-fallback — multimodal fallback toggle + model.
   // When enabled, requests containing images are automatically routed to a
   // vision-capable model even if the client's model doesn't support images.

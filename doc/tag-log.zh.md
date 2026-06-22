@@ -17,6 +17,12 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 ---
 
+## v0.5.28 (upcoming)
+
+- **[fix]** **MiMo 联网搜索现在默认关闭 —— 没开通插件的账户不再陷入 "webSearchEnabled is false" 400 重试死循环** —— 当请求带着 `web_search` 工具到 MiMo、但账户没开通（单独计费的）联网插件时，上游会 400 `web search tool found in the request body, but webSearchEnabled is false`；而 400 不可重试，错误透传回 Codex，Codex 又按自己的 `request_max_retries` 不停重发同样请求 → 无限失败循环。根因：mimo2codex 把 `web_search` 转发给所有非 token-plan（sk-）账户（[mimo.ts](src/providers/mimo.ts) 的 `enableWebSearch: !isTokenPlan`），错误地假定按量付费账户有插件——其实没有，插件对所有人都是 opt-in/计费的。**现在 web_search 转发改为 opt-in、对所有账户默认关闭**：除非显式开启，否则 mimo2codex 转发前会剥掉 `web_search`。需要时（且账户已开通插件）在管理台 **Codex 启用 → 思考与运行时覆盖 → 联网搜索** 开关打开，或用 `--web-search` / `MIMO2CODEX_WEB_SEARCH=1`。token-plan（tp-）账户无论如何都不带联网。新增设置 `mimo.webSearchEnabled`、新增 `GET/PUT /admin/api/web-search-state`，通过 `PreprocessCtx.webSearchEnabled` 全链路贯穿（照搬 `thinking.disabled` 那套开关）。
+
+---
+
 ## v0.5.27 (upcoming)
 
 - **[new]** **新增「保留 ChatGPT 登录」启用方式 + Codex 手机端引导** —— 让你在保持真实 ChatGPT 账号登录的同时，把模型走 mimo2codex 代理（这正是用 OpenAI 官方「Codex 手机端 / 远程」、用手机操作这台电脑上 Codex 的前提）。此前启用 mimo2codex provider 会把 `~/.codex/auth.json` **覆盖**成占位 key，把你从「Sign in with ChatGPT」登出，于是官方登录和代理互斥。新路径（检测到真实登录时默认走它）**对 auth.json 一字节都不改**，只改写 `config.toml`（`model_provider` → 代理、`requires_openai_auth = true`）；Codex 随后把你真实的 ChatGPT OAuth token 作为 bearer 附到本地代理，代理忽略它并转发到上游。「Codex 启用」页的确认弹窗会说明这一点，仍可勾选退回旧的覆盖行为；同时新增了仅 config.toml 的**「保留 ChatGPT 登录」**片段页签、可折叠的**「用手机操作这台 Codex」**引导卡片，以及 `doc/codex-mobile-remote.{md,zh.md}`。实现上隔离为独立新文件（`src/codex/preserveLogin.ts`、`src/setup/preserveLoginSnippet.ts`、`web/src/pages/codex/MobileRemoteCard.tsx`），现有 apply 路径完全不动。**注意：**官方**远程**模式到底会不会把模型走你本地代理（还是被强制用 OpenAI 自家模型）没有官方文档、需实测 —— 引导里已注明。

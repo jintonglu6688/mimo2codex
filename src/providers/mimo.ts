@@ -8,9 +8,10 @@ const WEB_SEARCH_DISABLED_MARKER = "webSearchEnabled is false";
 
 const WEB_SEARCH_HINT =
   "MiMo Web Search Plugin is not activated for this account. " +
-  "Activate it at https://platform.xiaomimimo.com/#/console/plugin (separately billed) " +
-  "and restart mimo2codex. The model has decided to call web_search; if your account " +
-  "doesn't include the plugin, this request will keep failing until activated.";
+  "Either activate it at https://platform.xiaomimimo.com/#/console/plugin (separately billed) " +
+  "and restart mimo2codex, OR turn OFF web search in mimo2codex (Codex Enable page → " +
+  "Thinking & Override → Web search, or run without --web-search). Web search is off by " +
+  "default; you only see this if it was explicitly enabled without the plugin.";
 
 // Per https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/multimodal-understanding/image-understanding,
 // only `mimo-v2.5` and `mimo-v2-omni` accept image input. The pro/flash
@@ -109,6 +110,14 @@ function isTokenPlanRuntime(apiKey: string, baseUrl: string): boolean {
   return /token-plan/i.test(baseUrl) || apiKey.startsWith("tp-");
 }
 
+// web_search is forwarded to MiMo only when the user explicitly opted in
+// (ctx.webSearchEnabled) AND the account isn't token-plan (tp- never has the
+// plugin). Default off — the Web Search Plugin is separately billed and off by
+// default, so forwarding it unprompted 400s ("webSearchEnabled is false").
+function webSearchAllowed(ctx: PreprocessCtx): boolean {
+  return ctx.webSearchEnabled === true && !ctx.runtime.flags.isTokenPlan;
+}
+
 // Models whose upstream default for `thinking` is "disabled" — we leave the
 // field off the request so the upstream-side default kicks in.
 const MIMO_THINKING_DEFAULT_DISABLED = new Set(["mimo-v2-flash"]);
@@ -176,16 +185,16 @@ export const mimo: Provider = {
   },
 
   preprocessResponses(req: ResponsesRequest, ctx: PreprocessCtx): ChatRequest {
-    // mimo2codex's two default-on behaviors that compensate for MiMo's weaker
-    // agentic-coding training compared to GPT-5 / Claude:
-    //   - parallel_tool_calls: true        ← batch tool calls per turn
-    //   - web_search forwarded to MiMo     ← model decides when to search
+    // parallel_tool_calls is forced on (batches tool calls per turn) to
+    // compensate for MiMo's weaker agentic-coding training vs GPT-5 / Claude.
     //
-    // Token-plan accounts don't have the Web Search Plugin, so we proactively
-    // strip web_search before forwarding (avoids 400 "webSearchEnabled is false").
+    // web_search is forwarded ONLY when explicitly opted in (the global "web
+    // search" toggle) and the account isn't token-plan. It's OFF by default
+    // because the Web Search Plugin is separately billed and forwarding it
+    // unprompted 400s "webSearchEnabled is false".
     const chat = reqToChat(req, {
       forceParallelToolCalls: true,
-      enableWebSearch: !ctx.runtime.flags.isTokenPlan,
+      enableWebSearch: webSearchAllowed(ctx),
       imageDropDir: ctx.dataDir,
       disableThinking: ctx.disableThinking,
       forceHighEffort: ctx.forceHighEffort,
@@ -201,6 +210,14 @@ export const mimo: Provider = {
       // mimo 上游用 thinking:{type:"disabled"} 关思考。**不要**碰 reasoning_effort ——
       // mimo schema 只接受 low/medium/high，"none" 会 400。
       out.thinking = { type: "disabled" };
+    }
+    // Same web_search gate as preprocessResponses: drop the builtin web_search
+    // tool unless explicitly opted in (and not token-plan), so a passthrough
+    // chat request can't 400 on an account without the plugin. Reassigning a
+    // new array leaves the caller's req.tools untouched.
+    if (!webSearchAllowed(ctx) && Array.isArray(out.tools)) {
+      const filtered = out.tools.filter((t) => (t as { type?: string }).type !== "web_search");
+      if (filtered.length !== out.tools.length) out.tools = filtered;
     }
     return normalizeMimoBody(out, out.model);
   },

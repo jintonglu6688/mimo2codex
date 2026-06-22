@@ -58,6 +58,11 @@ export interface PreprocessCtx {
   // 上游真高强度思考。默认 false，仅在 admin UI 显式打开时生效。disableThinking=true 时
   // 此开关被忽略（关思考路径接管）。
   forceHighEffort?: boolean;
+  // 全局"联网搜索"开关：是否把 web_search 工具转发给上游。默认 undefined/false ——
+  // MiMo 的 Web Search Plugin 单独计费、默认不开通，转发会 400 "webSearchEnabled is
+  // false"。仅当用户在 CLI(--web-search) / env / admin UI 显式打开时为 true。各 provider
+  // 自己决定是否参考（mimo 参考它且对 tp- 永远剥离；deepseek 硬关；generic 走 providers.json）。
+  webSearchEnabled?: boolean;
   // The model id that's actually going to the upstream — after admin runtime
   // override / alias / provider defaultModel fallback. Capability checks
   // (vision, …) in reqToChat should follow THIS, not req.model (the client

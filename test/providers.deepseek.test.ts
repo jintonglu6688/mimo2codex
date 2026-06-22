@@ -201,7 +201,9 @@ describe("mimo provider preprocessResponses retains MiMo specifics", () => {
     expect(chat.parallel_tool_calls).toBe(true);
   });
 
-  it("forwards web_search when not on token-plan", () => {
+  it("drops web_search by DEFAULT (toggle off) even when not on token-plan", () => {
+    // Web search is opt-in now: without webSearchEnabled the tool is stripped,
+    // so a sk- account without the (separately-billed) plugin can't 400.
     const req: ResponsesRequest = {
       model: "mimo-v2.5-pro",
       input: "x",
@@ -210,11 +212,10 @@ describe("mimo provider preprocessResponses retains MiMo specifics", () => {
       ] as ResponsesRequest["tools"],
     };
     const chat = mimo.preprocessResponses(req, mimoCtx);
-    expect(chat.tools).toHaveLength(1);
-    expect(chat.tools![0].type).toBe("web_search");
+    expect(chat.tools).toBeUndefined();
   });
 
-  it("strips web_search when isTokenPlan", () => {
+  it("forwards web_search when the toggle is ON (and not token-plan)", () => {
     const req: ResponsesRequest = {
       model: "mimo-v2.5-pro",
       input: "x",
@@ -222,7 +223,24 @@ describe("mimo provider preprocessResponses retains MiMo specifics", () => {
         { type: "web_search_preview" } as unknown as ResponsesRequest["tools"] extends Array<infer T> ? T : never,
       ] as ResponsesRequest["tools"],
     };
-    const ctx = { ...mimoCtx, runtime: { ...mimoCtx.runtime, flags: { isTokenPlan: true } } };
+    const chat = mimo.preprocessResponses(req, { ...mimoCtx, webSearchEnabled: true });
+    expect(chat.tools).toHaveLength(1);
+    expect(chat.tools![0].type).toBe("web_search");
+  });
+
+  it("strips web_search when isTokenPlan (even with the toggle on)", () => {
+    const req: ResponsesRequest = {
+      model: "mimo-v2.5-pro",
+      input: "x",
+      tools: [
+        { type: "web_search_preview" } as unknown as ResponsesRequest["tools"] extends Array<infer T> ? T : never,
+      ] as ResponsesRequest["tools"],
+    };
+    const ctx = {
+      ...mimoCtx,
+      webSearchEnabled: true,
+      runtime: { ...mimoCtx.runtime, flags: { isTokenPlan: true } },
+    };
     const chat = mimo.preprocessResponses(req, ctx);
     expect(chat.tools).toBeUndefined();
   });

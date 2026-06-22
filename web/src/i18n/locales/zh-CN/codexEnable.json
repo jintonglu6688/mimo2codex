@@ -85,6 +85,14 @@
     "modelLabel": "Fallback 模型",
     "modelPlaceholder": "例如 mimo-v2.5"
   },
+  "webSearch": {
+    "title": "联网搜索 (web_search)",
+    "scopeNote": "默认关闭。MiMo 的联网插件单独计费、默认不开通——没开通就打开它会让请求报错 'webSearchEnabled is false'。",
+    "statusOn": "已开启：web_search 会转发给上游",
+    "statusOff": "已关闭：转发前剥掉 web_search",
+    "hint": "关闭时（默认），mimo2codex 不会把 Codex 的 web_search 工具转发给 MiMo，因此不会再撞上「插件未激活」的 400。只有当你的 MiMo 账户已开通联网插件时才打开它。token-plan（tp-）账户无论如何都不会带联网。修改后立即对新请求生效（无需重启）。",
+    "cliOverride": "联网搜索当前由 CLI flag (--web-search) 或环境变量 (MIMO2CODEX_WEB_SEARCH) 控制，开关被锁定。如需用 UI 控制，启动时不要带这些参数。"
+  },
   "targets": {
     "title": "可启用组合",
     "externalWarn": "当前 ~/.codex/auth.json 是真实登录（很可能是 Sign in with ChatGPT）。现在点「写入文件并启用」默认会保留它不动，只把模型重定向 —— 你的 ChatGPT 登录（以及 OpenAI 官方的 Codex 手机端/远程）继续可用。如确需覆盖，可在确认弹窗里勾选。",

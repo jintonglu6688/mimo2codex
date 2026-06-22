@@ -640,3 +640,30 @@ describe("admin REST — desktop signal routes (A2)", () => {
     expect((r.json as { error: { code: string } }).error.code).toBe("invalid_action");
   });
 });
+
+describe("admin REST — web-search-state route", () => {
+  it("GET defaults to disabled (web search is off by default)", async () => {
+    const r = await call("GET", "/admin/api/web-search-state");
+    expect(r.status).toBe(200);
+    const body = r.json as { effective: boolean; cliOverride: boolean | null; setting: boolean };
+    expect(body.effective).toBe(false);
+    expect(body.setting).toBe(false);
+    expect(body.cliOverride).toBeNull();
+  });
+
+  it("PUT { enabled: true } persists and GET reflects it", async () => {
+    const put = await call("PUT", "/admin/api/web-search-state", { enabled: true });
+    expect(put.status).toBe(200);
+    expect((put.json as { ok: boolean }).ok).toBe(true);
+    const get = await call("GET", "/admin/api/web-search-state");
+    const body = get.json as { effective: boolean; setting: boolean };
+    expect(body.setting).toBe(true);
+    expect(body.effective).toBe(true);
+  });
+
+  it("PUT without an `enabled` boolean is 400", async () => {
+    const r = await call("PUT", "/admin/api/web-search-state", {});
+    expect(r.status).toBe(400);
+    expect((r.json as { error: { code: string } }).error.code).toBe("invalid_body");
+  });
+});

@@ -45,6 +45,11 @@ export interface Config {
   //   undefined → 未显式设置，让运行时读 settings DB（admin UI 控制）
   // server.ts 的 resolveDisableThinking() 实现 CLI > settings > false 的优先级。
   disableThinkingFromCli?: boolean;
+  // --web-search CLI flag (or MIMO2CODEX_WEB_SEARCH env)。三态，同 disableThinking：
+  //   true → 显式打开"向上游转发 web_search"  /  false → 显式关闭  /  undefined → 读 settings DB。
+  // 默认关闭（MiMo 联网插件单独计费、默认不开通）。server.ts 的 resolveWebSearchEnabled()
+  // 实现 CLI/env > settings(mimo.webSearchEnabled) > false 的优先级。
+  webSearchFromCli?: boolean;
   // Authentication mode. "off" (default for the native CLI binary) keeps the
   // historic local-only behavior: /admin/* and /v1/* are fully open, no users,
   // no sessions, no per-request key checks. "on" (default in the Docker image
@@ -85,6 +90,7 @@ export interface ParsedArgs {
   noLoadEnv?: boolean;
   noUpdateCheck?: boolean;
   disableThinking?: boolean;
+  webSearch?: boolean;
   authMode?: "off" | "on";
   logBodyMode?: LogBodyMode;
   logRetentionDays?: number | null;
@@ -150,6 +156,12 @@ export function parseArgv(argv: string[]): ParsedArgs {
         break;
       case "--disable-thinking":
         out.disableThinking = true;
+        break;
+      case "--web-search":
+        out.webSearch = true;
+        break;
+      case "--no-web-search":
+        out.webSearch = false;
         break;
       case "--auth": {
         const v = next().toLowerCase();
@@ -316,6 +328,17 @@ export function buildConfig(parsed: ParsedArgs, env: NodeJS.ProcessEnv, version:
       ? true
       : undefined);
 
+  // --web-search / --no-web-search > MIMO2CODEX_WEB_SEARCH=1|0 > undefined (read
+  // settings DB). Default OFF — the MiMo Web Search Plugin is separately billed
+  // and off by default, so forwarding web_search unprompted 400s.
+  const webSearchFromCli: boolean | undefined =
+    parsed.webSearch ??
+    (env.MIMO2CODEX_WEB_SEARCH === "1" || env.MIMO2CODEX_WEB_SEARCH === "true"
+      ? true
+      : env.MIMO2CODEX_WEB_SEARCH === "0" || env.MIMO2CODEX_WEB_SEARCH === "false"
+        ? false
+        : undefined);
+
   // --auth on|off > MIMO2CODEX_AUTH=on|1|true|off|0|false > "off" default.
   // Docker images flip this to "on" via ENV in the Dockerfile, so containers
   // are secure by default while npm/local CLI users keep the zero-auth UX.
@@ -336,6 +359,7 @@ export function buildConfig(parsed: ParsedArgs, env: NodeJS.ProcessEnv, version:
     adminEnabled,
     contextOverflowMode,
     disableThinkingFromCli,
+    webSearchFromCli,
     authMode,
     cookieSecure: env.MIMO2CODEX_COOKIE_SECURE === "1" || env.MIMO2CODEX_COOKIE_SECURE === "true",
     silentRewriteFromCli:

@@ -75,6 +75,9 @@ OPTIONS
       --disable-thinking  globally skip upstream "thinking" mode (mimo/deepseek: thinking:disabled;
                           sensenova/generic: reasoning_effort:"none"). Admin UI 也可配置；
                           CLI flag 优先于 admin UI 设置. env: MIMO2CODEX_DISABLE_THINKING=1
+      --web-search        forward web_search to the upstream (default OFF; MiMo's Web Search
+                          Plugin is separately billed and off by default — forwarding without
+                          it 400s). Admin UI 也可配置；CLI flag 优先. env: MIMO2CODEX_WEB_SEARCH=1
       --data-dir <path>   admin sqlite + UI data directory (default: ~/.mimo2codex,
                           env: MIMO2CODEX_DATA_DIR)
       --no-admin          disable the local admin UI + sqlite logging
@@ -459,6 +462,11 @@ function printStartupBanner(
     lines.push(`thinking:    disabled (--disable-thinking)`);
   } else if (cfg.disableThinkingFromCli === false) {
     lines.push(`thinking:    forced on (CLI overrode admin setting)`);
+  }
+  if (cfg.webSearchFromCli === true) {
+    lines.push(`web search:  ON (--web-search / env — needs MiMo Web Search Plugin)`);
+  } else if (cfg.webSearchFromCli === false) {
+    lines.push(`web search:  OFF (explicit)`);
   }
   // 未显式设 CLI flag 时不打印此行 —— 实际值由 admin UI 控制，每请求动态读 settings。
   const others = (Object.keys(cfg.providers) as Array<keyof typeof cfg.providers>)

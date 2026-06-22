@@ -64,6 +64,20 @@ function resolveForceHighEffort(cfg: Config): boolean {
   }
 }
 
+// web_search 转发解析：CLI/env (cfg.webSearchFromCli) > admin settings DB > false。
+// 默认关闭 —— MiMo 的 Web Search Plugin 单独计费、默认不开通，没开通时转发 web_search
+// 会 400 "webSearchEnabled is false"。仅在用户显式打开时才转发。每请求调用一次，admin
+// UI 改了即时生效、无需重启。
+function resolveWebSearchEnabled(cfg: Config): boolean {
+  if (cfg.webSearchFromCli !== undefined) return cfg.webSearchFromCli;
+  if (!cfg.adminEnabled) return false;
+  try {
+    return getSetting("mimo.webSearchEnabled") === "1";
+  } catch {
+    return false;
+  }
+}
+
 // silentRewrite 解析：env (cfg.silentRewriteFromCli) > admin settings DB > true。
 // 注意默认是 **静默**（true）—— admin UI 顶部「更多」里有快速开关。每请求调一次，
 // admin 改了立即生效，无需重启。
@@ -758,6 +772,7 @@ async function handleResponses(
     dataDir: cfg.dataDir,
     disableThinking: resolveDisableThinking(cfg),
     forceHighEffort: resolveForceHighEffort(cfg),
+    webSearchEnabled: resolveWebSearchEnabled(cfg),
     upstreamModel,
   });
   chat.model = upstreamModel;
@@ -1448,6 +1463,7 @@ async function handleChatPassthrough(
     exposeReasoning: cfg.exposeReasoning,
     disableThinking: resolveDisableThinking(cfg),
     forceHighEffort: resolveForceHighEffort(cfg),
+    webSearchEnabled: resolveWebSearchEnabled(cfg),
     upstreamModel,
   });
   body.model = upstreamModel;

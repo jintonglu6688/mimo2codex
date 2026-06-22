@@ -85,6 +85,14 @@
     "modelLabel": "Fallback model",
     "modelPlaceholder": "e.g. mimo-v2.5"
   },
+  "webSearch": {
+    "title": "Web search (web_search)",
+    "scopeNote": "OFF by default. MiMo's Web Search Plugin is separately billed and not activated by default — turning this on without the plugin makes requests fail with 'webSearchEnabled is false'.",
+    "statusOn": "Enabled: web_search is forwarded to the upstream",
+    "statusOff": "Disabled: web_search is stripped before forwarding",
+    "hint": "When OFF (default), mimo2codex never forwards Codex's web_search tool to MiMo, so you won't hit plugin-not-activated 400s. Turn it ON only if your MiMo account has the Web Search Plugin activated. Token-plan (tp-) accounts never get web search regardless. Takes effect immediately (no restart).",
+    "cliOverride": "Web search is currently controlled by a CLI flag (--web-search) or env (MIMO2CODEX_WEB_SEARCH). The switch is locked. Restart without those to control it here."
+  },
   "targets": {
     "title": "Available combinations",
     "externalWarn": "Your current ~/.codex/auth.json is a real login (likely Sign in with ChatGPT). 'Write files and enable' now keeps it intact by default and only redirects the model — your ChatGPT login (and OpenAI's official Codex mobile/remote) keeps working. You can still opt to overwrite it in the confirm dialog.",
