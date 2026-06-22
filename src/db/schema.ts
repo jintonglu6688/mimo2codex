@@ -206,4 +206,43 @@ ALTER TABLE chat_logs ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE 
 CREATE INDEX IF NOT EXISTS idx_chat_logs_user ON chat_logs(user_id, ts DESC);
 `,
   },
+  {
+    // v6 (issue #76): hourly rollup so the Dashboard never aggregates over the
+    // whole (potentially many-GB) chat_logs table. Maintained incrementally on
+    // each insertLog and backfilled in the background for pre-existing rows.
+    // Key is (hour, provider, client_model, upstream_model) — hourly granularity
+    // serves the 1h/24h/7d/30d windows the dashboard uses while staying tiny.
+    // lat_b0..b7 are an 8-bucket latency histogram for approximate percentiles
+    // (bounds ms: 100/250/500/1000/2000/5000/10000/+); duration_sum/count give
+    // an exact average. The partial index makes the error-code breakdown (which
+    // still reads chat_logs) touch only the small error subset.
+    version: 6,
+    sql: `
+CREATE TABLE IF NOT EXISTS chat_stats_hourly (
+  hour_ts INTEGER NOT NULL,
+  provider_id TEXT NOT NULL,
+  client_model TEXT NOT NULL,
+  upstream_model TEXT NOT NULL,
+  requests INTEGER NOT NULL DEFAULT 0,
+  errors INTEGER NOT NULL DEFAULT 0,
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  cached_tokens INTEGER NOT NULL DEFAULT 0,
+  duration_sum INTEGER NOT NULL DEFAULT 0,
+  duration_count INTEGER NOT NULL DEFAULT 0,
+  last_ts INTEGER NOT NULL DEFAULT 0,
+  lat_b0 INTEGER NOT NULL DEFAULT 0,
+  lat_b1 INTEGER NOT NULL DEFAULT 0,
+  lat_b2 INTEGER NOT NULL DEFAULT 0,
+  lat_b3 INTEGER NOT NULL DEFAULT 0,
+  lat_b4 INTEGER NOT NULL DEFAULT 0,
+  lat_b5 INTEGER NOT NULL DEFAULT 0,
+  lat_b6 INTEGER NOT NULL DEFAULT 0,
+  lat_b7 INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (hour_ts, provider_id, client_model, upstream_model)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_logs_errors ON chat_logs(ts) WHERE status_code >= 400;
+`,
+  },
 ];

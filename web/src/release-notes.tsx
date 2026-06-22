@@ -53,14 +53,31 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     version: "0.5.28",
     date: "2026-06-22",
     title: {
-      en: "MiMo web search is now opt-in (off by default)",
-      zh: "MiMo 联网搜索改为可选(默认关闭)",
+      en: "Faster admin dashboard + web search is now opt-in",
+      zh: "管理后台更快 + 联网搜索改为可选",
     },
     summary: {
-      en: "Fixes the 'webSearchEnabled is false' error loop on MiMo accounts without the (separately-billed) Web Search Plugin — web_search is no longer forwarded unless you turn it on.",
-      zh: "修复没开通(单独计费的)联网插件的 MiMo 账户上 'webSearchEnabled is false' 报错死循环——除非你主动打开,否则不再转发 web_search。",
+      en: "The Overview/Logs pages no longer crawl on a large database (stats now come from an incremental rollup), and MiMo web search is off by default so accounts without the plugin stop erroring.",
+      zh: "概览/日志页在大数据库下不再卡顿(统计改用增量汇总表);MiMo 联网搜索默认关闭,没开插件的账户不再报错。",
     },
     highlights: [
+      {
+        kind: "improved",
+        title: {
+          en: "Admin dashboard stays fast even with a huge log database",
+          zh: "日志库很大时管理后台依然流畅",
+        },
+        description: {
+          en: "On a large data.db (one user hit 22 GB), the Overview and Logs pages could take 10+ minutes to load because every visit re-aggregated the entire chat_logs table — which also stalled the proxy itself. Stats now come from a small hourly rollup table updated as logs are written, so the dashboard stays fast no matter how big the log database grows. Existing history is backfilled in the background. Tip: the speed-up doesn't shrink the file — set a retention period or 'errors-only' body capture in the Logs page's storage settings to reclaim space.",
+          zh: "在很大的 data.db 上,概览和日志页会要十几分钟才打开——因为每次都在整张 chat_logs 大表上重新聚合,连代理本身也被拖住。现在统计改由一张随写日志同步更新的「按小时汇总表」提供,无论日志库多大,后台都保持流畅;历史数据在后台回填。提示:后台变快不会缩小文件——在日志页「存储设置」里设保留天数或改成仅存错误体来回收空间。",
+        },
+        location: {
+          en: "Overview & Logs pages (and storage settings on the Logs page)",
+          zh: "概览 & 日志页(以及日志页的「存储设置」)",
+        },
+        ctaLabel: { en: "Open Logs", zh: "打开日志" },
+        ctaPath: "/logs",
+      },
       {
         kind: "fixed",
         title: {

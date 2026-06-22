@@ -129,8 +129,6 @@ export function Logs() {
         offset: page * PAGE_SIZE,
       });
       setLogs(r.logs);
-      // Refresh the db-size readout alongside the list (best-effort).
-      api.dbSize().then(setDbSize).catch(() => {});
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -140,6 +138,10 @@ export function Logs() {
 
   useEffect(() => {
     void loadProviders();
+    // db size once on mount — it barely moves between page turns, and querying
+    // it on every paginate/filter change just piled extra load onto an already
+    // struggling DB (issue #76). Refreshed on demand from "存储设置" instead.
+    api.dbSize().then(setDbSize).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -270,6 +272,7 @@ export function Logs() {
               : t("clearOld.removed", { count: r.removed })
           );
           await load();
+          api.dbSize().then(setDbSize).catch(() => {});
         } catch (err) {
           setError((err as Error).message);
         }
@@ -299,6 +302,7 @@ export function Logs() {
               : t("clearAll.removed", { count: r.removed })
           );
           await load();
+          api.dbSize().then(setDbSize).catch(() => {});
         } catch (err) {
           setError((err as Error).message);
         }

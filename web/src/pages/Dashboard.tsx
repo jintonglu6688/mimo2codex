@@ -59,6 +59,10 @@ export function Dashboard() {
   const statsRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<HTMLDivElement>(null);
   const recentRef = useRef<HTMLDivElement>(null);
+  // Guards against overlapping polls: on a large DB an aggregation can take a
+  // while, and stacking up requests is what made a slow dashboard unreachable
+  // (issue #76). A new poll is skipped while the previous one is still running.
+  const inFlight = useRef(false);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [timeseries, setTimeseries] = useState<TokenTimeseriesResponse | null>(null);
@@ -104,6 +108,8 @@ export function Dashboard() {
   }
 
   async function load() {
+    if (inFlight.current) return;
+    inFlight.current = true;
     try {
       setError(null);
       const [p, s, ts, l, es, ls, h] = await Promise.all([
@@ -156,18 +162,21 @@ export function Dashboard() {
       setInitialLoaded(true);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      inFlight.current = false;
     }
   }
 
   useEffect(() => {
     void load();
-    // Auto-refresh: 5s when tab visible, 30s when hidden. Same logic gets
-    // re-run on visibility change because there's no DOM event for "tab
-    // became active", only document.visibilityState toggling.
+    // Auto-refresh: 20s when tab visible, 60s when hidden. Deliberately not
+    // sub-10s — the stats now come from the hourly rollup and barely change
+    // between polls, and a tight interval on a slow DB stacks requests up
+    // (issue #76). The inFlight guard in load() also prevents overlap.
     let tid: ReturnType<typeof setInterval>;
     function schedule() {
       if (tid) clearInterval(tid);
-      const ms = document.visibilityState === "visible" ? 5000 : 30000;
+      const ms = document.visibilityState === "visible" ? 20000 : 60000;
       tid = setInterval(load, ms);
     }
     schedule();

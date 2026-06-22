@@ -22,6 +22,7 @@ import type { UserRow } from "./db/users.js";
 import { insertLog, type ChatLogEntry } from "./db/logs.js";
 import { getActiveOverride, type ActiveOverride } from "./db/overrides.js";
 import { getSetting } from "./db/settings.js";
+import { backfillStatsChunk, isStatsBackfillDone } from "./db/stats.js";
 import { applyLogBodyMode, resolveLogBodyMode, runLogMaintenance } from "./logging/settings.js";
 import { redactSensitive } from "./util/redact.js";
 import { isMaintenance, getMaintenanceMessage } from "./util/maintenance.js";
@@ -1821,6 +1822,26 @@ export function startServer(cfg: Config): Server {
     maintain();
     const tid = setInterval(maintain, 6 * 60 * 60 * 1000);
     server.on("close", () => clearInterval(tid));
+
+    // Background stats backfill (issue #76): fold pre-upgrade chat_logs rows
+    // into the hourly rollup in small chunks (newest-first) so the Dashboard's
+    // historical charts become accurate within minutes, without blocking
+    // startup or requests. Stops itself once complete.
+    if (!isStatsBackfillDone()) {
+      const btid = setInterval(() => {
+        try {
+          const { done } = backfillStatsChunk();
+          if (done) {
+            clearInterval(btid);
+            log.info("stats backfill complete");
+          }
+        } catch (err) {
+          log.warn(`stats backfill chunk failed (will retry next tick): ${(err as Error).message}`);
+        }
+      }, 2000);
+      btid.unref?.();
+      server.on("close", () => clearInterval(btid));
+    }
   }
 
   server.listen(cfg.port, cfg.host);

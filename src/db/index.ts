@@ -22,6 +22,7 @@ export function openDb(dataDir: string): DB {
   const wasFresh = applyMigrations(db);
   seedBuiltins(db);
   seedLoggingDefaults(db, wasFresh);
+  seedStatsBackfill(db);
   instance = db;
   instancePath = dbPath;
   log.debug(`sqlite opened at ${dbPath}`);
@@ -88,6 +89,30 @@ export function seedLoggingDefaults(db: DB, wasFresh: boolean): void {
     insert.run("logging.bodyMode", "full", now);
   }
   insert.run("logging.defaultsSeeded", "1", now);
+}
+
+// Snapshot the "upgrade boundary" for the hourly-stats backfill (issue #76),
+// ONCE, the first time the v6 rollup schema is live — before any new insert.
+// `stats.backfillMaxId` = MAX(chat_logs.id) at this moment: rows at/below it are
+// pre-existing and get folded into the rollup by the background backfill, while
+// rows above it are counted live by recordStatsForLog. Capturing it here (not
+// lazily later) guarantees no row is double-counted. A fresh/empty install has
+// nothing to backfill, so it's marked done immediately.
+export function seedStatsBackfill(db: DB): void {
+  const already = db
+    .prepare("SELECT 1 FROM settings WHERE key = 'stats.backfillMaxId'")
+    .get();
+  if (already) return;
+  const maxId =
+    (db.prepare("SELECT MAX(id) AS m FROM chat_logs").get() as { m: number | null }).m ?? 0;
+  const now = Date.now();
+  const insert = db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO NOTHING`
+  );
+  insert.run("stats.backfillMaxId", String(maxId), now);
+  insert.run("stats.backfillCursor", String(maxId), now);
+  insert.run("stats.backfillDone", maxId > 0 ? "0" : "1", now);
 }
 
 // Drop providers whose shortcut already appeared (first writer wins). The

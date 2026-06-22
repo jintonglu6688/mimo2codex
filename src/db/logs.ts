@@ -1,5 +1,6 @@
 import { statSync, statfsSync } from "node:fs";
 import { getDb } from "./index.js";
+import { floorHourMs, percentilesFromBuckets, recordStatsForLog } from "./stats.js";
 
 export interface ChatLogEntry {
   ts: number;
@@ -39,43 +40,50 @@ export function insertLog(entry: ChatLogEntry): void {
       ? entry.error_snippet.slice(0, MAX_SNIPPET) + "…"
       : entry.error_snippet
     : null;
-  getDb()
-    .prepare(
-      `INSERT INTO chat_logs (
-        ts, request_id, provider_id, client_model, upstream_model,
-        endpoint, status_code, duration_ms,
-        prompt_tokens, completion_tokens, total_tokens,
-        stream, error_code, error_snippet,
-        request_body, response_body, tool_call_count, cached_tokens, user_id
-      ) VALUES (
-        @ts, @request_id, @provider_id, @client_model, @upstream_model,
-        @endpoint, @status_code, @duration_ms,
-        @prompt_tokens, @completion_tokens, @total_tokens,
-        @stream, @error_code, @error_snippet,
-        @request_body, @response_body, @tool_call_count, @cached_tokens, @user_id
-      )`
-    )
-    .run({
-      ts: entry.ts,
-      request_id: entry.request_id,
-      provider_id: entry.provider_id,
-      client_model: entry.client_model,
-      upstream_model: entry.upstream_model,
-      endpoint: entry.endpoint,
-      status_code: entry.status_code,
-      duration_ms: entry.duration_ms,
-      prompt_tokens: entry.prompt_tokens,
-      completion_tokens: entry.completion_tokens,
-      total_tokens: entry.total_tokens,
-      stream: entry.stream ? 1 : 0,
-      error_code: entry.error_code,
-      error_snippet: snippet,
-      request_body: entry.request_body,
-      response_body: entry.response_body,
-      tool_call_count: entry.tool_call_count,
-      cached_tokens: entry.cached_tokens ?? null,
-      user_id: entry.user_id ?? null,
-    });
+  // Insert the detail row AND increment the hourly stats rollup in one
+  // transaction so the rollup (read by the Dashboard) never drifts from
+  // chat_logs. See src/db/stats.ts for why the rollup exists (issue #76).
+  const tx = getDb().transaction(() => {
+    getDb()
+      .prepare(
+        `INSERT INTO chat_logs (
+          ts, request_id, provider_id, client_model, upstream_model,
+          endpoint, status_code, duration_ms,
+          prompt_tokens, completion_tokens, total_tokens,
+          stream, error_code, error_snippet,
+          request_body, response_body, tool_call_count, cached_tokens, user_id
+        ) VALUES (
+          @ts, @request_id, @provider_id, @client_model, @upstream_model,
+          @endpoint, @status_code, @duration_ms,
+          @prompt_tokens, @completion_tokens, @total_tokens,
+          @stream, @error_code, @error_snippet,
+          @request_body, @response_body, @tool_call_count, @cached_tokens, @user_id
+        )`
+      )
+      .run({
+        ts: entry.ts,
+        request_id: entry.request_id,
+        provider_id: entry.provider_id,
+        client_model: entry.client_model,
+        upstream_model: entry.upstream_model,
+        endpoint: entry.endpoint,
+        status_code: entry.status_code,
+        duration_ms: entry.duration_ms,
+        prompt_tokens: entry.prompt_tokens,
+        completion_tokens: entry.completion_tokens,
+        total_tokens: entry.total_tokens,
+        stream: entry.stream ? 1 : 0,
+        error_code: entry.error_code,
+        error_snippet: snippet,
+        request_body: entry.request_body,
+        response_body: entry.response_body,
+        tool_call_count: entry.tool_call_count,
+        cached_tokens: entry.cached_tokens ?? null,
+        user_id: entry.user_id ?? null,
+      });
+    recordStatsForLog(entry);
+  });
+  tx();
 }
 
 // Per-user aggregates for the Users admin page. LEFT JOIN ensures users
@@ -199,11 +207,14 @@ export interface MappingRow {
   last_seen: number;
 }
 
+// Reads the hourly rollup (issue #76) instead of GROUP BY-ing the whole
+// chat_logs table — the original had no time filter, so it scanned every row.
 export function aggregateMappings(): MappingRow[] {
   return getDb()
     .prepare(
-      `SELECT provider_id, client_model, upstream_model, COUNT(*) AS count, MAX(ts) AS last_seen
-       FROM chat_logs
+      `SELECT provider_id, client_model, upstream_model,
+              SUM(requests) AS count, MAX(last_ts) AS last_seen
+       FROM chat_stats_hourly
        GROUP BY provider_id, client_model, upstream_model
        ORDER BY count DESC`
     )
@@ -226,23 +237,26 @@ const RANGE_MS: Record<string, number> = {
   "30d": 30 * 24 * 60 * 60 * 1000,
 };
 
+// Reads the hourly rollup (issue #76). The window is floored to the hour, so a
+// "24h" view actually covers the current hour back ~24-25h — an acceptable
+// approximation that keeps the query off the multi-GB chat_logs table.
 export function aggregateStats(range: string): { since: number; rows: StatsRow[] } {
   const span = RANGE_MS[range] ?? RANGE_MS["24h"];
   const since = Date.now() - span;
   const rows = getDb()
     .prepare(
       `SELECT provider_id, upstream_model,
-              COUNT(*) AS requests,
-              SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) AS errors,
-              COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
-              COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
-              COALESCE(SUM(total_tokens), 0) AS total_tokens
-       FROM chat_logs
-       WHERE ts >= @since
+              SUM(requests) AS requests,
+              SUM(errors) AS errors,
+              SUM(prompt_tokens) AS prompt_tokens,
+              SUM(completion_tokens) AS completion_tokens,
+              SUM(total_tokens) AS total_tokens
+       FROM chat_stats_hourly
+       WHERE hour_ts >= @sinceHour
        GROUP BY provider_id, upstream_model
        ORDER BY requests DESC`
     )
-    .all({ since }) as StatsRow[];
+    .all({ sinceHour: floorHourMs(since) }) as StatsRow[];
   return { since, rows };
 }
 
@@ -349,38 +363,36 @@ export interface LatencyStats {
   p99: number;
 }
 
-// Latency percentiles over the window. We pull duration_ms into JS to compute
-// quantiles because SQLite lacks PERCENTILE_CONT — for typical windows
-// (≤30 days × ≤thousands of requests) this is fine; if traffic grows past
-// 1M rows we can revisit with a window-function approach.
+// Latency over the window, from the hourly rollup (issue #76). Average is exact
+// (duration_sum / duration_count); percentiles are approximate — derived from
+// the 8-bucket latency histogram (lat_b0..b7) rather than scanning every
+// duration_ms out of the multi-GB chat_logs table.
 export function aggregateLatency(range: string): LatencyStats {
   const span = RANGE_MS[range] ?? RANGE_MS["24h"];
   const since = Date.now() - span;
-  const rows = getDb()
+  const r = getDb()
     .prepare(
-      `SELECT duration_ms FROM chat_logs
-       WHERE ts >= @since AND duration_ms IS NOT NULL
-       ORDER BY duration_ms ASC`
+      `SELECT COALESCE(SUM(duration_sum), 0) AS dsum,
+              COALESCE(SUM(duration_count), 0) AS dcount,
+              COALESCE(SUM(lat_b0), 0) AS b0, COALESCE(SUM(lat_b1), 0) AS b1,
+              COALESCE(SUM(lat_b2), 0) AS b2, COALESCE(SUM(lat_b3), 0) AS b3,
+              COALESCE(SUM(lat_b4), 0) AS b4, COALESCE(SUM(lat_b5), 0) AS b5,
+              COALESCE(SUM(lat_b6), 0) AS b6, COALESCE(SUM(lat_b7), 0) AS b7
+       FROM chat_stats_hourly WHERE hour_ts >= @sinceHour`
     )
-    .all({ since }) as Array<{ duration_ms: number }>;
-  if (rows.length === 0) {
-    return { since, count: 0, avg: 0, p50: 0, p95: 0, p99: 0 };
-  }
-  const values = rows.map((r) => r.duration_ms);
-  const sum = values.reduce((a, b) => a + b, 0);
-  const pct = (q: number): number => {
-    if (values.length === 1) return values[0];
-    const idx = Math.min(values.length - 1, Math.floor((values.length - 1) * q));
-    return values[idx];
+    .get({ sinceHour: floorHourMs(since) }) as {
+    dsum: number;
+    dcount: number;
+    b0: number; b1: number; b2: number; b3: number;
+    b4: number; b5: number; b6: number; b7: number;
   };
-  return {
-    since,
-    count: values.length,
-    avg: Math.round(sum / values.length),
-    p50: pct(0.5),
-    p95: pct(0.95),
-    p99: pct(0.99),
-  };
+  const count = r.dcount;
+  if (count === 0) return { since, count: 0, avg: 0, p50: 0, p95: 0, p99: 0 };
+  const { p50, p95, p99 } = percentilesFromBuckets(
+    [r.b0, r.b1, r.b2, r.b3, r.b4, r.b5, r.b6, r.b7],
+    count
+  );
+  return { since, count, avg: Math.round(r.dsum / count), p50, p95, p99 };
 }
 
 export interface ProviderHealthRow {
@@ -397,22 +409,24 @@ export interface ProviderHealthRow {
 // distinguish "no data" from "0% errors".
 export function aggregateProviderHealth(rangeMs: number = 60 * 60 * 1000): ProviderHealthRow[] {
   const since = Date.now() - rangeMs;
+  // Reads the hourly rollup (issue #76). The 1h window floors to the hour, so it
+  // covers the current hour bucket (and the previous one near an hour boundary).
   return getDb()
     .prepare(
       `SELECT provider_id,
-              COUNT(*) AS requests,
-              SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) AS errors,
+              SUM(requests) AS requests,
+              SUM(errors) AS errors,
               CASE
-                WHEN COUNT(*) = 0 THEN -1
-                ELSE ROUND(100.0 * SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) / COUNT(*), 1)
+                WHEN SUM(requests) = 0 THEN -1
+                ELSE ROUND(100.0 * SUM(errors) / SUM(requests), 1)
               END AS error_rate,
-              MAX(ts) AS last_seen
-       FROM chat_logs
-       WHERE ts >= @since
+              MAX(last_ts) AS last_seen
+       FROM chat_stats_hourly
+       WHERE hour_ts >= @sinceHour
        GROUP BY provider_id
        ORDER BY requests DESC`
     )
-    .all({ since }) as ProviderHealthRow[];
+    .all({ sinceHour: floorHourMs(since) }) as ProviderHealthRow[];
 }
 
 // Per-day token usage broken down by (provider_id, upstream_model). The
@@ -497,21 +511,23 @@ export function aggregateTokensTimeseries(
   // local-tz date/hour string SQLite-side.
   const fmt =
     bucket === "hour" ? "%Y-%m-%d %H" : "%Y-%m-%d";
+  // Reads the hourly rollup (issue #76) — strftime now runs over the small
+  // hourly table (≤720 rows for 30d) instead of millions of chat_logs rows.
   const rows = getDb()
     .prepare(
-      `SELECT strftime('${fmt}', ts/1000, 'unixepoch', 'localtime') AS day,
+      `SELECT strftime('${fmt}', hour_ts/1000, 'unixepoch', 'localtime') AS day,
               provider_id,
               upstream_model,
-              COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
-              COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
-              COALESCE(SUM(total_tokens), 0) AS total_tokens,
-              COALESCE(SUM(cached_tokens), 0) AS cached_tokens
-       FROM chat_logs
-       WHERE ts >= @since
+              SUM(prompt_tokens) AS prompt_tokens,
+              SUM(completion_tokens) AS completion_tokens,
+              SUM(total_tokens) AS total_tokens,
+              SUM(cached_tokens) AS cached_tokens
+       FROM chat_stats_hourly
+       WHERE hour_ts >= @sinceHour
        GROUP BY day, provider_id, upstream_model
        ORDER BY day ASC`
     )
-    .all({ since }) as Array<{
+    .all({ sinceHour: floorHourMs(since) }) as Array<{
     day: string;
     provider_id: string;
     upstream_model: string;
