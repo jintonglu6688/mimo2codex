@@ -4,8 +4,9 @@ import type { Provider, ProviderId } from "./types.js";
 
 // Built-in providers are always registered first. Generic providers loaded
 // at startup (from providers.json or GENERIC_* env vars) are appended via
-// initRegistry() before buildConfig() runs. The registry is mutable state
-// but transitions only once per process — there is no hot reload.
+// initRegistry() before buildConfig() runs. The admin API also calls
+// initRegistry() when providers.json is saved so host apps can hot-reload
+// generic providers without restarting the process.
 export const BUILTIN_PROVIDERS: readonly Provider[] = [mimo, deepseek];
 
 // Single mutable container objects. Importers keep their reference and see
@@ -19,9 +20,9 @@ const providersMapMutable: Record<string, Provider> = Object.fromEntries(
 export const PROVIDER_LIST: readonly Provider[] = providerListMutable;
 export const PROVIDERS: Readonly<Record<ProviderId, Provider>> = providersMapMutable;
 
-// Initialize the registry with extra generic providers. Called once from
-// cli.ts main() before buildConfig(). Safe to call zero times — the
-// built-ins are present from module load.
+// Initialize the registry with extra generic providers. Called from cli.ts
+// before buildConfig(), and again by admin hot reload. Safe to call zero times
+// — the built-ins are present from module load.
 export function initRegistry(generics: readonly Provider[]): void {
   // Reset to built-ins (idempotent — tests may call this multiple times).
   providerListMutable.length = 0;

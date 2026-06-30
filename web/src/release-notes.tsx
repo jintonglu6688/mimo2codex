@@ -95,6 +95,21 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         ctaLabel: { en: "Open Codex Enable", zh: "打开 Codex 启用" },
         ctaPath: "/codex",
       },
+      {
+        kind: "improved",
+        title: {
+          en: "Host apps can update generic providers without restarting",
+          zh: "宿主应用可免重启更新 generic provider",
+        },
+        description: {
+          en: "Saving generic providers now hot-reloads the provider registry and runtime keys. Host apps such as MyCodex can write service API keys to the data directory .env file, activate the provider immediately, and still keep those keys out of providers.json. The parser also preserves selectedModels metadata for external model managers.",
+          zh: "保存 generic provider 后会立即热加载 provider registry 和运行时 key。MyCodex 等宿主应用可以把服务级 API key 写入数据目录 .env 并立刻激活 provider，同时避免把 key 留在 providers.json。解析器也会保留 selectedModels 元数据，方便外部模型管理器往返保存。",
+        },
+        location: {
+          en: "Admin API / host integration",
+          zh: "Admin API / 宿主集成",
+        },
+      },
     ],
   },
 ];

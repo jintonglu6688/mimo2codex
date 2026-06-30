@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createGenericProvider, GenericProviderSpecError } from "../src/providers/generic.js";
 import {
+  readSpecsFromFile,
   loadGenericProviders,
   GenericLoaderError,
 } from "../src/providers/genericLoader.js";
@@ -156,6 +157,33 @@ describe("loadGenericProviders", () => {
     const result = loadGenericProviders({}, tmp);
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("qwen");
+  });
+
+  it("preserves selectedModels from providers.json", () => {
+    const providersPath = join(tmp, "providers.json");
+    writeFileSync(
+      providersPath,
+      JSON.stringify({
+        providers: [
+          {
+            id: "qwen",
+            displayName: "Qwen",
+            baseUrl: "https://example.com/v1",
+            envKey: "QWEN_API_KEY",
+            defaultModel: "qwen3-max",
+            models: [
+              { id: "qwen3-max" },
+              { id: "qwen3-coder" },
+            ],
+            selectedModels: ["qwen3-coder"],
+          },
+        ],
+      })
+    );
+
+    const specs = readSpecsFromFile(providersPath);
+
+    expect(specs[0].selectedModels).toEqual(["qwen3-coder"]);
   });
 
   it("MIMO2CODEX_PROVIDERS_FILE override takes precedence", () => {

@@ -23,6 +23,8 @@ mimo2codex 的版本发布历史，按 tag 倒序排列。
 
 - **[fix]** **MiMo 联网搜索现在默认关闭 —— 没开通插件的账户不再陷入 "webSearchEnabled is false" 400 重试死循环** —— 当请求带着 `web_search` 工具到 MiMo、但账户没开通（单独计费的）联网插件时，上游会 400 `web search tool found in the request body, but webSearchEnabled is false`；而 400 不可重试，错误透传回 Codex，Codex 又按自己的 `request_max_retries` 不停重发同样请求 → 无限失败循环。根因：mimo2codex 把 `web_search` 转发给所有非 token-plan（sk-）账户（[mimo.ts](src/providers/mimo.ts) 的 `enableWebSearch: !isTokenPlan`），错误地假定按量付费账户有插件——其实没有，插件对所有人都是 opt-in/计费的。**现在 web_search 转发改为 opt-in、对所有账户默认关闭**：除非显式开启，否则 mimo2codex 转发前会剥掉 `web_search`。需要时（且账户已开通插件）在管理台 **Codex 启用 → 思考与运行时覆盖 → 联网搜索** 开关打开，或用 `--web-search` / `MIMO2CODEX_WEB_SEARCH=1`。token-plan（tp-）账户无论如何都不带联网。新增设置 `mimo.webSearchEnabled`、新增 `GET/PUT /admin/api/web-search-state`，通过 `PreprocessCtx.webSearchEnabled` 全链路贯穿（照搬 `thinking.disabled` 那套开关）。
 
+- **[opt]** **generic provider 变更可被 MyCodex 等宿主应用热加载**：保存 `/admin/api/generic-providers` 后，现在会立即刷新内存中的 provider registry 和运行时 key 映射，不再要求重启。宿主应用保存 provider 时可以带 inline service key（`apiKey` / `serviceApiKey` / `upstreamApiKey`）；mimo2codex 会把 key 写入 `<dataDir>/.env`、从 `providers.json` 中剥离、更新 `process.env`，并立即激活该 provider。新增 `PUT /admin/api/service-provider-runtime/:providerId`，可单独更新已有 provider 的服务级 API key / Base URL，且不触碰按用户存储的 BYOK key。generic provider 解析器也会保留可选的 `selectedModels` 元数据，让外部管理器能往返保存“哪些声明模型被启用”，同时不改变运行时路由逻辑。
+
 ---
 
 ## v0.5.27 (upcoming)

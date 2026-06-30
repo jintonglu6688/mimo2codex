@@ -253,6 +253,37 @@ function resolveProviderRuntime(
   };
 }
 
+export function refreshProviderRuntimes(
+  cfg: Config,
+  env: NodeJS.ProcessEnv = process.env
+): void {
+  const previous = cfg.providers;
+  const parsed: ParsedArgs = { positional: [], showHelp: false, showVersion: false };
+  const next: Record<ProviderId, ProviderRuntime | null> = Object.fromEntries(
+    PROVIDER_LIST.map((p) => [p.id, null])
+  );
+  for (const p of PROVIDER_LIST) {
+    next[p.id] =
+      resolveProviderRuntime(p, p.id === cfg.defaultProviderId, parsed, env) ??
+      (p.id === cfg.defaultProviderId ? previous[p.id] : null) ??
+      null;
+  }
+
+  for (const key of Object.keys(previous)) {
+    delete previous[key];
+  }
+  for (const [key, value] of Object.entries(next)) {
+    previous[key] = value;
+  }
+
+  const defaultRuntime = previous[cfg.defaultProviderId];
+  if (defaultRuntime) {
+    cfg.baseUrl = defaultRuntime.baseUrl;
+    cfg.apiKey = defaultRuntime.apiKey;
+    cfg.isTokenPlan = !!defaultRuntime.flags.isTokenPlan;
+  }
+}
+
 export function buildConfig(parsed: ParsedArgs, env: NodeJS.ProcessEnv, version: string): Config {
   const exposeReasoningEnv = env.MIMO2CODEX_NO_REASONING ? false : true;
   const verboseEnv = !!env.MIMO2CODEX_VERBOSE;
